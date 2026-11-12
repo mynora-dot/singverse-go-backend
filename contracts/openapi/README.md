@@ -148,7 +148,7 @@ TV 非转码增强新增设备专用 text-tracks 与 releases/current、releases
 
 ## 全曲库音轨角色与离线分离
 
-新增管理员 `/media-songs/{song}/audio-roles` GET/PUT、`/audio-jobs` POST、`/audio-jobs/{id}/cancel` POST 和独立伴奏 GET/HEAD。角色包含 state、origin、revision、originalId、backingId；纠正只接受两条本地探测存在的源音轨，旧 revision 返回 409，素材指纹变化使旧角色/伴奏失效。亲友及 TV 的 `/api/v1/{party|tv}/audio-roles/songs/{song}` GET/PUT 使用活跃聚会 Bearer，全员可纠正，分离仍限管理员。管理员 POST/PUT 沿用 CSRF。
+新增管理员 `/media-songs/{song}/audio-roles` GET/PUT、`/audio-jobs` POST、`/audio-jobs/{id}/cancel` POST 和独立伴奏 GET/HEAD。角色包含 state、origin、revision、originalId、backingId；纠正只接受两条本地探测或已核验资料包声明中存在的源音轨，旧 revision 返回 409，素材指纹变化使旧角色/伴奏失效。亲友及 TV 的 `/api/v1/{party|tv}/audio-roles/songs/{song}` GET/PUT 使用活跃聚会 Bearer，全员可纠正，分离仍限管理员。管理员 POST/PUT 沿用 CSRF。
 
 播放 `PlaybackOptions.audioRole` 按共享角色选用；`PlaybackResource.audioRoles` 为首次协商快照，`backingUrl` 为 Go 授权的独立伴奏，客户端合并时保留视频原时间轴并处理 offset。`/api/v1/internal/audio-input/{id}` 只允许关联计算节点凭据读取 RUNNING 任务的当前素材。
 
@@ -238,6 +238,8 @@ Nginx 为上述两个批量写入接口单独允许 128 KiB 请求，以容纳 1
 
 来源创建可选 `startScan` 和 WebDAV 的 `autoExtractEmbedded`；省略时保持旧客户端只保存的行为。后台导入使用 `embedded-metadata/import-jobs` 上传、预览、映射、确认、查询、取消与重试，返回 lower camelCase 的 `MediaImportJob`；上传完成后由服务端续跑。`rebind` 保留歌曲身份与本地订正，单独重新核验媒体。默认共享 v4 使用稳定系列、版本与正式对象，兼容 v2/v3 导入；默认完整 ZIP，增量要求匹配基线，旧版本拒绝，删除提示不自动应用。详细状态、路径规则、限额及兼容边界见[媒体库说明](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/docs/media-library.md#媒体入库资料合并与分享2026-11-10)。
 
+导入任务新增可选 `inputState`（`RETAINED` / `PENDING` / `RELEASED`）、`inputCleanupError`、`inputCleanupAfter`，单独表示上传 ZIP 的保留与回收；资料条目、附件引用和基线全部持久化后即可回收 ZIP，核验、取消后恢复和显式重试读取持久化记录。清理失败延后自动重试，不改变导入结果或重复应用资料。每轮核验只列举每个父目录一次，失败保存到条目，显式重试仅重查失败项；相同 URL 更换账号时全部重新核验。`pathOnlyCount` 是 `presentCount` 中未校验大小的数量，样本可返回 `verification` 与 `verificationLevel`（`PATH_ONLY` / `PATH_AND_SIZE` / `null`），避免将未知大小当作大小一致。
+
 
 ## Metadata Schema 1.0 与正式资料接口（2026-11-11）
 
@@ -253,3 +255,12 @@ Nginx 为上述两个批量写入接口单独允许 128 KiB 请求，以容纳 1
 ## 客户端发行与在线更新
 
 公开只读版本、APK与二维码接口由 Go 提供，platform 仅 mobile/tv，完整字段与权限见 OpenAPI 路径及 [更新契约](../client-updates.md)。运行仅提供镜像内包，不访问 GitHub；旧 TV current/APK 接口保留兼容。
+
+音轨资料的接收端复用：完整资料包的源流映射在接收方精确相对路径及可得大小核验通过后可直接采用，`origin=SHARED`、`reuseBasis=PATH_ONLY|PATH_AND_SIZE`、`receiverProbed=false`；这不表示接收端已探测或完成内容摘要验证。根地址或账号绑定变化、路径缺失、大小冲突使采用路径失效。本机 SET/CLEAR 始终优先。
+
+约定的 FLAC/MP3 等单轨歌曲无需媒体探测即可返回 `state=CONFIRMED, origin=SOURCE, originalSelection={kind:UNIQUE_AUDIO}`；此时没有 `originalId`，不得伪造流索引。选择原唱表示使用唯一/默认音频；必要探测或播放观察后才返回实测的 `originalId`。`audioRoles` 正式流映射契约仍只允许实测/资料包声明的 `stream:N`。
+
+接收端解析结果必须绑定当时的来源根地址、账号及 WebDAV 资源代次；更换绑定后拒绝旧结果和历史流映射。升级前缺少绑定快照的解析历史不会自动补成当前账号的探测依据，本机人工 SET/CLEAR 保留；旧运行任务需重新读取音轨。
+
+
+音轨任务的 `cleanupState=PENDING|RELEASED`、`cleanupError` 独立描述计算节点临时输入/样本清理。清理失败保留原业务成功/失败状态和已确认角色，后台仅重试回收并刷新终态任务的清理快照，不重新识别或重复采用角色；公开任务视图不返回内部临时路径。旧节点可省略这些字段。

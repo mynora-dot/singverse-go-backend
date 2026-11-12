@@ -34,6 +34,17 @@ func (s *Service) ServeCachedOriginal(ctx context.Context, w http.ResponseWriter
 	if str(song, "source_type") != "WEBDAV" {
 		return false, nil
 	}
+	if session, _ := ctx.Value(analysisReadKey{}).(string); session != "" {
+		return s.analysisOriginal(ctx, w, r, song, session, fetch, func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if guard != nil {
+				return guard()
+			}
+			return nil
+		})
+	}
 	size := integer(song["file_size"])
 	if song["file_size"] == nil || size <= 0 {
 		return false, nil

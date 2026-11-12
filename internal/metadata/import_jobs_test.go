@@ -277,8 +277,11 @@ func TestWorkflowRejectsMissingDeltaBaselineAndResumesChunks(t *testing.T) {
 	}
 	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+id+"/apply", nil, 200)
 	job = importStep(t, f, source, id, "FAILED")
-	if number(job["processedCount"]) != 100 {
+	if number(job["processedCount"]) != 100 || job["inputState"] != "RETAINED" {
 		t.Fatal(job)
+	}
+	if _, err = os.Stat(importArchive(t, f, id)); err != nil {
+		t.Fatal("partially applied import lost its resumable input", err)
 	}
 	if _, err = f.db.Exec("DROP TRIGGER fail_import"); err != nil {
 		t.Fatal(err)
@@ -299,7 +302,7 @@ func TestWorkflowRejectsMissingDeltaBaselineAndResumesChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, err := f.s.importJob(ctx, source, id)
-	if err != nil || number(stored["processedCount"]) != 201 || number(stored["addedCount"]) != 201 || text(stored["state"]) != "VERIFYING" {
+	if err != nil || number(stored["processedCount"]) != 201 || number(stored["addedCount"]) != 201 || text(stored["state"]) != "VERIFYING" || stored["inputState"] != "RELEASED" {
 		t.Fatal(stored, err)
 	}
 	var songs int

@@ -1,0 +1,1 @@
+INSERT INTO media_analysis_read(id,fingerprint,max_bytes,max_requests,max_elapsed_ms,used_bytes,request_count,elapsed_ms,source_size,etag,modified,updated_at) SELECT @{id},@{fingerprint},@{bytes},@{requests},@{elapsed},0,0,0,NULL,'','',@{now} WHERE NOT EXISTS(SELECT 1 FROM media_analysis_read WHERE id=@{id})

@@ -30127,6 +30127,18 @@
           "error": {
             "type": "string"
           },
+          "cleanupState": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "RELEASED"
+            ],
+            "description": "Temporary compute input/sample cleanup lifecycle, independent of task and analysis outcomes. PENDING is retried without re-running media analysis or applying roles again. Optional for older nodes."
+          },
+          "cleanupError": {
+            "type": "string",
+            "description": "Bounded temporary cleanup failure message; empty after release. No temporary paths are exposed."
+          },
           "resultState": {
             "type": "string",
             "description": "Analysis outcome (CONFIDENT or UNKNOWN), separate from task execution state. Empty for legacy results without an outcome."
@@ -30266,6 +30278,32 @@
             "items": {
               "$ref": "#/components/schemas/AudioVersion"
             }
+          },
+          "originalSelection": {
+            "type": "object",
+            "description": "For guaranteed single-audio song formats before probing. Select the unique/default audio source; no stream index has been observed. Never fabricate stream:0.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "UNIQUE_AUDIO"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "reuseBasis": {
+            "enum": [
+              "PATH_ONLY",
+              "PATH_AND_SIZE"
+            ],
+            "description": "Receiver directory verification authorizing original, unmodified package audio reuse. This is not receiver probing or a media content hash."
+          },
+          "receiverProbed": {
+            "type": "boolean",
+            "description": "False for adopted package declarations and unprobed unique-audio song selection."
           }
         },
         "required": [
@@ -33790,6 +33828,11 @@
             "type": "integer",
             "minimum": 0
           },
+          "pathOnlyCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Subset of presentCount whose path exists but package or directory size is unknown; these are not size matches."
+          },
           "missingCount": {
             "type": "integer",
             "minimum": 0
@@ -33859,6 +33902,30 @@
               "null"
             ]
           },
+          "inputState": {
+            "type": "string",
+            "enum": [
+              "RETAINED",
+              "PENDING",
+              "RELEASED"
+            ],
+            "description": "Uploaded ZIP lifecycle, independent of business state. Retained while parsing, previewing or applying; released once entries, assets and baseline are durable. Verification and retry use stored records."
+          },
+          "inputCleanupError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Retryable ZIP cleanup failure; does not fail or replay the import."
+          },
+          "inputCleanupAfter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Earliest next automatic ZIP cleanup attempt after a cleanup failure."
+          },
           "samples": {
             "type": "array",
             "maxItems": 5,
@@ -33873,6 +33940,31 @@
                 },
                 "mediaURL": {
                   "type": "string"
+                },
+                "verification": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "PRESENT",
+                    "MISSING",
+                    "MISMATCH",
+                    "UNREACHABLE",
+                    null
+                  ]
+                },
+                "verificationLevel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "PATH_ONLY",
+                    "PATH_AND_SIZE",
+                    null
+                  ],
+                  "description": "PRESENT evidence strength; null for pending or unsuccessful verification. PATH_ONLY never implies matching size."
                 },
                 "local": {
                   "type": "object",
@@ -33932,7 +34024,7 @@
             "type": "string"
           }
         },
-        "description": "Durable uploaded metadata workflow. No binding digest or credentials are returned. Latest may be an empty object. Samples are constructed from recipient source root; they never use sender addresses."
+        "description": "Durable uploaded metadata workflow. No binding digest or credentials are returned. Latest may be an empty object. Samples are constructed from recipient source root; they never use sender addresses. One verification run lists each parent directory once and saves every item outcome; explicit retry revisits failed items, or all items after source credentials change. PRESENT includes path-only observations; consult pathOnlyCount and verificationLevel for size evidence. ZIP cleanup is independent and preserves all durable import records."
       },
       "SourceIngestTask": {
         "type": "object",

@@ -137,7 +137,7 @@ func (s *Service) importJob(ctx context.Context, sourceID, id string) (map[strin
 		if e != nil {
 			return nil, e
 		}
-		sample := map[string]any{"originalPath": entry["original_path"], "relativePath": entry["relative_path"], "mediaURL": url}
+		sample := map[string]any{"originalPath": entry["original_path"], "relativePath": entry["relative_path"], "mediaURL": url, "verification": entry["verification"], "verificationLevel": entry["verification_level"]}
 		snapshot := map[string]any{}
 		if e = decode(entry["snapshot_json"], &snapshot); e != nil {
 			return nil, e
@@ -162,8 +162,14 @@ func (s *Service) importJob(ctx context.Context, sourceID, id string) (map[strin
 		return nil, e
 	}
 	job["preview"] = counts
+	pathOnly, e := s.rows(ctx, s.db, "workflow-pathOnlyCount", map[string]any{"id": id})
+	if e != nil {
+		return nil, e
+	}
+	job["path_only_count"] = scalar(pathOnly)
 	// Credential and opaque binding digests are not useful in the product.
 	delete(job, "binding")
+	delete(job, "verification_source_binding")
 	return importDTO(job), nil
 }
 func (s *Service) getImport(c *gin.Context) { s.respondImport(c, c.Param("id"), c.Param("jobId"), 200) }
@@ -327,7 +333,19 @@ func (s *Service) importAction(c *gin.Context) {
 			}
 			if phase == "VERIFYING" {
 				state = "VERIFYING"
-				if _, e = s.exec(ctx, tx, "workflow-retryVerify", map[string]any{"id": job["id"]}); e != nil {
+				source, e := s.row(ctx, tx, "source", map[string]any{"id": job["source_id"]})
+				if e != nil {
+					return e
+				}
+				binding := importSourceBinding(source)
+				resetPresent := 0
+				if prior := text(job["verification_source_binding"]); prior != "" && prior != binding {
+					resetPresent = 1
+				}
+				if _, e = s.exec(ctx, tx, "workflow-retryVerify", map[string]any{"id": job["id"], "resetPresent": resetPresent}); e != nil {
+					return e
+				}
+				if _, e = s.exec(ctx, tx, "workflow-verificationBinding", map[string]any{"id": job["id"], "sourceBinding": binding}); e != nil {
 					return e
 				}
 			} else if phase == "APPLYING" {
@@ -433,7 +451,7 @@ func (s *Service) ProcessImports(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
+	return s.cleanupImportInputs(ctx)
 }
 func (s *Service) prepareImport(ctx context.Context, job map[string]any) error {
 	if e := s.validateImportBinding(ctx, s.db, job); e != nil {
@@ -565,7 +583,11 @@ func (s *Service) applyImport(ctx context.Context, job map[string]any) error {
 						return e
 					}
 				}
-				return s.setImportState(ctx, tx, id, "VERIFYING", "VERIFYING", nil)
+				if e = s.setImportState(ctx, tx, id, "VERIFYING", "VERIFYING", nil); e != nil {
+					return e
+				}
+				_, e = s.exec(ctx, tx, "workflow-inputReady", map[string]any{"id": id})
+				return e
 			}
 			for _, entry := range entries {
 				var size *int64
@@ -594,7 +616,7 @@ func (s *Service) applyImport(ctx context.Context, job map[string]any) error {
 						if _, e = s.exec(ctx, tx, "workflow-entryApplied", map[string]any{"id": id, "ordinal": entry["ordinal"], "songId": nil, "outcome": "UNCHANGED", "differences": "[]"}); e != nil {
 							return e
 						}
-						if _, e = s.exec(ctx, tx, "workflow-entryVerified", map[string]any{"id": id, "ordinal": entry["ordinal"], "verification": "MISSING", "verificationError": "此路径已归档，保留原归档状态"}); e != nil {
+						if _, e = s.exec(ctx, tx, "workflow-entryVerified", map[string]any{"id": id, "ordinal": entry["ordinal"], "verification": "MISSING", "verificationError": "此路径已归档，保留原归档状态", "verificationLevel": nil}); e != nil {
 							return e
 						}
 						continue
@@ -644,21 +666,43 @@ func (s *Service) importCounters(ctx context.Context, tx store.DBTX, id string) 
 }
 func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 	id := text(job["id"])
+	var sourceBinding string
+	if e := s.transaction(ctx, func(tx store.DBTX) error {
+		fresh, e := s.row(ctx, tx, "workflow-read", map[string]any{"id": id, "sourceId": job["source_id"]})
+		if e != nil {
+			return e
+		}
+		if text(fresh["state"]) != "VERIFYING" {
+			return conflict("核验已停止")
+		}
+		if e = s.validateImportBinding(ctx, tx, fresh); e != nil {
+			return e
+		}
+		source, e := s.row(ctx, tx, "source", map[string]any{"id": job["source_id"]})
+		if e != nil {
+			return e
+		}
+		sourceBinding = importSourceBinding(source)
+		if prior := text(fresh["verification_source_binding"]); prior != "" && prior != sourceBinding {
+			return conflict("核验期间来源账号已变化，请重试目录核验")
+		}
+		_, e = s.exec(ctx, tx, "workflow-verificationBinding", map[string]any{"id": id, "sourceBinding": sourceBinding})
+		return e
+	}); e != nil {
+		return e
+	}
+	// This is a finite snapshot. Each parent directory is attempted once, and
+	// failures become durable outcomes until an explicit retry resets them.
 	entries, e := s.rows(ctx, s.db, "workflow-verifyAll", map[string]any{"id": id})
 	if e != nil {
 		return e
 	}
-	for offset := 0; offset < len(entries); {
+	for _, group := range groupVerificationEntries(entries) {
 		if e = s.validateImportBinding(ctx, s.db, job); e != nil {
 			return e
 		}
-		folder := pathpkg.Dir(text(entries[offset]["relative_path"]))
-		if folder == "." {
-			folder = ""
-		}
-		end := offset + 1
-		for end < len(entries) && pathpkg.Dir(text(entries[end]["relative_path"])) == pathpkg.Dir(text(entries[offset]["relative_path"])) {
-			end++
+		if e = s.validateVerificationSource(ctx, s.db, text(job["source_id"]), sourceBinding); e != nil {
+			return e
 		}
 		fresh, e := s.row(ctx, s.db, "workflow-read", map[string]any{"id": id, "sourceId": job["source_id"]})
 		if e != nil {
@@ -667,14 +711,14 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 		if text(fresh["state"]) != "VERIFYING" {
 			return conflict("核验已停止")
 		}
-		observed, missing, listErr := s.library.MediaDirectory(ctx, text(job["source_id"]), folder)
+		observed, missing, listErr := s.library.MediaDirectory(ctx, text(job["source_id"]), group.directory)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		for start := offset; start < end; {
+		for start := 0; start < len(group.entries); {
 			stop := start + 100
-			if stop > end {
-				stop = end
+			if stop > len(group.entries) {
+				stop = len(group.entries)
 			}
 			e = s.transaction(ctx, func(tx store.DBTX) error {
 				fresh, e := s.row(ctx, tx, "workflow-read", map[string]any{"id": id, "sourceId": job["source_id"]})
@@ -687,7 +731,10 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 				if e = s.validateImportBinding(ctx, tx, job); e != nil {
 					return e
 				}
-				for _, entry := range entries[start:stop] {
+				if e = s.validateVerificationSource(ctx, tx, text(job["source_id"]), sourceBinding); e != nil {
+					return e
+				}
+				for _, entry := range group.entries[start:stop] {
 					state := "PRESENT"
 					size, found := observed[text(entry["relative_path"])]
 					if listErr != nil {
@@ -700,14 +747,23 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 					} else if size != nil && entry["file_size"] != nil && *size != number(entry["file_size"]) {
 						state = "MISMATCH"
 					}
-					a := map[string]any{"id": id, "ordinal": entry["ordinal"], "songId": entry["song_id"], "verification": state, "verificationError": verificationMessage(listErr), "now": now()}
+					var level any
+					sizeVerified := state == "PRESENT" && size != nil && entry["file_size"] != nil
+					if state == "PRESENT" {
+						level = "PATH_ONLY"
+						if sizeVerified {
+							level = "PATH_AND_SIZE"
+						}
+					}
+					a := map[string]any{"id": id, "ordinal": entry["ordinal"], "songId": entry["song_id"], "verification": state, "verificationLevel": level, "verificationError": verificationMessage(listErr), "now": now()}
 					if _, e = s.exec(ctx, tx, "workflow-entryVerified", a); e != nil {
 						return e
 					}
 					if _, e = s.exec(ctx, tx, "shared-verification", a); e != nil {
 						return e
 					}
-					if e = s.library.Formal().Location(ctx, tx, text(entry["song_id"]), text(job["source_id"]), text(entry["relative_path"]), "", state, map[string]any{"size": size}); e != nil {
+					observation := map[string]any{"size": size, "verificationLevel": level, "sizeVerified": sizeVerified, "verificationBinding": job["binding"], "verificationSourceBinding": sourceBinding}
+					if e = s.library.Formal().Location(ctx, tx, text(entry["song_id"]), text(job["source_id"]), text(entry["relative_path"]), "", state, observation); e != nil {
 						return e
 					}
 				}
@@ -721,7 +777,6 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 			}
 			start = stop
 		}
-		offset = end
 	}
 	return s.transaction(ctx, func(tx store.DBTX) error {
 		current, e := s.row(ctx, tx, "workflow-read", map[string]any{"id": id, "sourceId": job["source_id"]})
@@ -734,8 +789,52 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 		if e = s.importCounters(ctx, tx, id); e != nil {
 			return e
 		}
+		if e = s.validateVerificationSource(ctx, tx, text(job["source_id"]), sourceBinding); e != nil {
+			return e
+		}
 		return s.setImportState(ctx, tx, id, "SUCCEEDED", "VERIFYING", nil)
 	})
+}
+
+type verificationEntries struct {
+	directory string
+	entries   []map[string]any
+}
+
+// Lexicographic paths can interleave a directory's files with descendants, so
+// adjacent-path grouping would repeat PROPFIND for the same parent directory.
+func groupVerificationEntries(entries []map[string]any) []verificationEntries {
+	groups := []verificationEntries{}
+	indexes := map[string]int{}
+	for _, entry := range entries {
+		directory := pathpkg.Dir(text(entry["relative_path"]))
+		if directory == "." {
+			directory = ""
+		}
+		index, exists := indexes[directory]
+		if !exists {
+			index = len(groups)
+			indexes[directory] = index
+			groups = append(groups, verificationEntries{directory: directory})
+		}
+		groups[index].entries = append(groups[index].entries, entry)
+	}
+	return groups
+}
+
+func importSourceBinding(source map[string]any) string {
+	return hash(text(source["location"]) + "\x00" + text(source["username"]) + "\x00" + text(source["password_encrypted"]))
+}
+
+func (s *Service) validateVerificationSource(ctx context.Context, tx store.DBTX, sourceID, binding string) error {
+	source, e := s.row(ctx, tx, "source", map[string]any{"id": sourceID})
+	if e != nil {
+		return e
+	}
+	if importSourceBinding(source) != binding {
+		return conflict("核验期间来源账号或根目录已变化，请重试目录核验")
+	}
+	return nil
 }
 
 // visitSharePackage validates the outer container before processing bounded
@@ -951,6 +1050,9 @@ func (s *Service) rebindSource(c *gin.Context) {
 			return e
 		}
 		if _, e = s.exec(ctx, tx, "workflow-total", map[string]any{"id": id, "total": counts["total_count"]}); e != nil {
+			return e
+		}
+		if _, e = s.exec(ctx, tx, "workflow-inputAbsent", map[string]any{"id": id}); e != nil {
 			return e
 		}
 		return s.setImportState(ctx, tx, id, "VERIFYING", "VERIFYING", nil)

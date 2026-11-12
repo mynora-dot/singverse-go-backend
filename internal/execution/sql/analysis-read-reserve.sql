@@ -1,0 +1,1 @@
+UPDATE media_analysis_read SET used_bytes=used_bytes+@{bytes},request_count=request_count+1,elapsed_ms=elapsed_ms+@{elapsed},updated_at=@{now} WHERE id=@{id} AND used_bytes+@{bytes}<=max_bytes AND request_count<max_requests AND elapsed_ms+@{elapsed}<=max_elapsed_ms

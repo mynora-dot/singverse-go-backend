@@ -3,6 +3,7 @@ package metastore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/jmoiron/sqlx"
@@ -34,6 +35,29 @@ func (s *Store) Location(ctx context.Context, db store.DBTX, media, source, path
 	rows, e := s.Locations(ctx, db, media)
 	if e != nil {
 		return e
+	}
+	// A scan updates ordinary attributes without discarding this receiver's
+	// directory-verification receipt. Never carry it across a different location,
+	// a failed verification, or a conflicting known size.
+	if len(rows) == 1 && state == "PRESENT" && rows[0].State == state && rows[0].SourceID != nil && *rows[0].SourceID == source && rows[0].RelativePath == path && observation["verificationBinding"] == nil {
+		var old map[string]any
+		_ = json.Unmarshal([]byte(rows[0].Observation), &old)
+		if encode(old["size"]) == "null" || encode(observation["size"]) == "null" || encode(old["size"]) == encode(observation["size"]) {
+			next := map[string]any{}
+			for key, value := range observation {
+				next[key] = value
+			}
+			if encode(next["size"]) == "null" && old["size"] != nil {
+				next["size"] = old["size"]
+			}
+			for _, key := range []string{"verificationBinding", "verificationSourceBinding", "verificationLevel", "sizeVerified"} {
+				if value, ok := old[key]; ok {
+					next[key] = value
+				}
+			}
+			// A size-less scan does not strengthen an earlier PATH_ONLY observation.
+			observation = next
+		}
 	}
 	hash := metastandard.Digest([]byte(path))
 	if len(rows) == 0 {

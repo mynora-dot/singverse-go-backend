@@ -1,0 +1,1 @@
+UPDATE media_analysis_read SET source_size=@{size},etag=CASE WHEN etag='' THEN @{etag} ELSE etag END,modified=CASE WHEN modified='' THEN @{modified} ELSE modified END WHERE id=@{id} AND (source_size IS NULL OR source_size=@{size}) AND (etag='' OR etag=@{etag}) AND (modified='' OR @{modified}='' OR modified=@{modified})

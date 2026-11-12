@@ -55,13 +55,13 @@ func (s *Service) submitAudio(ctx context.Context, songID, kind, backend string,
 	}
 	fp := contentFingerprint(song)
 	if kind == "SEPARATE" {
-		role, err := s.optional(ctx, s.db, "audio-role", map[string]any{"song": songID})
+		roles, err := s.audioStatus(ctx, songID)
 		if err != nil {
 			return nil, err
 		}
 		backing := ""
-		if str(role, "fingerprint") == fp {
-			backing = str(role, "backing_id")
+		if str(roles, "state") == "CONFIRMED" {
+			backing = str(roles, "backingId")
 		}
 		if spec.source != "" && spec.source != backing {
 			if err = s.validateAudioSource(ctx, songID, fp, spec.source); err != nil {
@@ -76,6 +76,7 @@ func (s *Service) submitAudio(ctx context.Context, songID, kind, backend string,
 	if err != nil {
 		return nil, err
 	}
+	history = currentAudioHistory(song, history)
 	analysisSeen := false
 	for _, row := range history {
 		if str(row, "kind") != kind {
@@ -124,6 +125,9 @@ func (s *Service) submitAudio(ctx context.Context, songID, kind, backend string,
 		if _, e = s.exec(ctx, tx, "audio-insert-job", values); e != nil {
 			return e
 		}
+		if e = s.bindAnalysisRead(ctx, tx, values, automatic); e != nil {
+			return e
+		}
 		return s.recordAudio(ctx, tx, values, origins, automatic, true)
 	})
 	if err != nil {
@@ -134,15 +138,39 @@ func (s *Service) submitAudio(ctx context.Context, songID, kind, backend string,
 func audioJobView(row map[string]any) map[string]any {
 	return map[string]any{"id": str(row, "id"), "kind": str(row, "kind"), "state": str(row, "state")}
 }
-func (s *Service) validateAudioSource(ctx context.Context, song, fp, source string) error {
+func (s *Service) validateAudioSource(ctx context.Context, songID, fp, source string) error {
 	parts := strings.Split(source, ":")
+	if len(parts) < 2 {
+		return fail(422, "源音轨选择无效")
+	}
 	base := parts[0] + ":" + parts[1]
-	history, err := s.maps(ctx, s.db, "audio-for-song", map[string]any{"song": song, "fingerprint": fp})
+	song, err := s.song(ctx, s.db, songID)
 	if err != nil {
 		return err
 	}
-	for _, row := range history {
+	history, err := s.maps(ctx, s.db, "audio-for-song", map[string]any{"song": songID, "fingerprint": fp})
+	if err != nil {
+		return err
+	}
+	for _, row := range currentAudioHistory(song, history) {
+		if str(row, "state") != "SUCCEEDED" {
+			continue
+		}
 		for _, stream := range array(decoded(row["result_json"])["streams"]) {
+			v := obj(stream)
+			if str(v, "id") == base && (len(parts) == 2 || integer(v["channels"]) == 2) {
+				return nil
+			}
+		}
+	}
+	// A verified package's declared stream IDs are also selectable. This path
+	// does not create a receiver probe merely to recover the same IDs.
+	roles, err := s.audioStatus(ctx, songID)
+	if err != nil {
+		return err
+	}
+	if str(roles, "state") == "CONFIRMED" {
+		for _, stream := range array(roles["streams"]) {
 			v := obj(stream)
 			if str(v, "id") == base && (len(parts) == 2 || integer(v["channels"]) == 2) {
 				return nil
@@ -153,8 +181,32 @@ func (s *Service) validateAudioSource(ctx context.Context, song, fp, source stri
 }
 func (s *Service) updateAudio(ctx context.Context, id, state string, result map[string]any, detail string) error {
 	return s.transaction(ctx, "AUDIO_JOB", id, func(tx *sqlx.Tx) error {
-		_, err := s.exec(ctx, tx, "audio-update-job", map[string]any{"id": id, "state": state, "result": encoded(result), "error": detail, "now": now()})
-		return err
+		// A local terminal transition may precede the node's final cleanup
+		// snapshot. Register its follow-up in this same commit, including source
+		// changes that fail a running task before its final result arrives.
+		watchCleanup := false
+		if oneOf(state, "FAILED", "CANCELLED") && !oneOf(str(result, "cleanupState"), "PENDING", "RELEASED") {
+			prior, err := s.optional(ctx, tx, "audio-job", map[string]any{"id": id})
+			if err != nil {
+				return err
+			}
+			watchCleanup = str(prior, "state") == "RUNNING"
+		}
+		updated, err := s.exec(ctx, tx, "audio-update-job", map[string]any{"id": id, "state": state, "result": encoded(result), "error": detail, "now": now()})
+		if err != nil {
+			return err
+		}
+		count, err := updated.RowsAffected()
+		if err != nil || count == 0 {
+			return err
+		}
+		if err = s.recordAudioCleanup(ctx, tx, id, result); err != nil {
+			return err
+		}
+		if watchCleanup {
+			return s.watchAudioCleanupIn(ctx, tx, id)
+		}
+		return nil
 	})
 }
 func (s *Service) audioInput(ctx context.Context, row map[string]any, c *compute.Connection) (map[string]any, error) {
@@ -187,6 +239,7 @@ func (s *Service) tickAudio(ctx context.Context) {
 		return
 	}
 	defer s.audioWorking.Store(false)
+	defer s.pollAudioCleanup(ctx)
 	pending, err := s.maps(ctx, s.db, "audio-pending", nil)
 	if err != nil {
 		return
@@ -245,6 +298,15 @@ func (s *Service) advanceAudio(ctx context.Context, row map[string]any) error {
 	if contentFingerprint(song) != str(row, "fingerprint") {
 		s.cancelRemoteAudio(ctx, row)
 		return fail(409, "源媒体已变化")
+	}
+	if oneOf(str(row, "kind"), "PROBE", "FAST", "ANALYZE") {
+		if _, err = s.analysisSession(ctx, row); err != nil {
+			return err
+		}
+		if err = s.validateAnalysisRead(ctx, s.db, row); err != nil {
+			s.cancelRemoteAudio(ctx, row)
+			return err
+		}
 	}
 	c, err := s.connection(ctx, str(row, "node_origin"))
 	if err != nil {
@@ -306,6 +368,9 @@ func (s *Service) advanceAudio(ctx context.Context, row map[string]any) error {
 				_ = os.Remove(s.audioPath(row))
 				return fail(409, "源媒体已变化")
 			}
+			if e = s.validateAnalysisRead(ctx, tx, latest); e != nil {
+				return e
+			}
 			if e = s.saveFormalProbe(ctx, tx, songID, result); e != nil {
 				return e
 			}
@@ -325,8 +390,10 @@ func (s *Service) advanceAudio(ctx context.Context, row map[string]any) error {
 					return e
 				}
 			}
-			_, e = s.exec(ctx, tx, "audio-update-job", map[string]any{"id": id, "state": "SUCCEEDED", "result": encoded(result), "error": "", "now": now()})
-			return e
+			if _, e = s.exec(ctx, tx, "audio-update-job", map[string]any{"id": id, "state": "SUCCEEDED", "result": encoded(result), "error": "", "now": now()}); e != nil {
+				return e
+			}
+			return s.recordAudioCleanup(ctx, tx, id, result)
 		})
 		if err == nil && str(row, "kind") == "SEPARATE" {
 			_, _ = s.call(ctx, c, "/internal/v1/audio-roles/tasks/"+id+"/release", "POST", nil)
@@ -598,11 +665,26 @@ func (s *Service) sourceAudio(ctx context.Context, w http.ResponseWriter, r *htt
 		if contentFingerprint(song) != str(row, "fingerprint") {
 			return nil, fail(409, "源媒体已变化")
 		}
+		if oneOf(str(row, "kind"), "PROBE", "FAST", "ANALYZE") && str(row, "read_session_id") != "" {
+			if err = s.validateAnalysisRead(ctx, s.db, row); err != nil {
+				return nil, err
+			}
+		}
 		return row, nil
 	}
 	row, err := guard()
 	if err != nil {
 		return err
+	}
+	if oneOf(str(row, "kind"), "PROBE", "FAST", "ANALYZE") {
+		session, err := s.analysisSession(ctx, row)
+		if err != nil {
+			return err
+		}
+		if err = s.validateAnalysisRead(ctx, s.db, row); err != nil {
+			return err
+		}
+		ctx = analysisContext(ctx, session)
 	}
 	return s.library.ServeOriginalGuard(ctx, w, r, str(row, "song_id"), func() error { _, err := guard(); return err })
 }
@@ -621,7 +703,7 @@ func (s *Service) accompaniment(ctx context.Context, w http.ResponseWriter, r *h
 	return streamFile(w, r, s.cfg.AudioDerivedPath, filepath.Base(s.audioPath(row)))
 }
 
-func (s *Service) observeAudio(ctx context.Context, songID string, media map[string]any) error {
+func (s *Service) observeAudio(ctx context.Context, songID string, media map[string]any, expectedPlayback ...string) error {
 	streams, ok := media["streams"].([]any)
 	if !ok || media["duration"] == nil {
 		return nil
@@ -633,13 +715,16 @@ func (s *Service) observeAudio(ctx context.Context, songID string, media map[str
 		if err != nil {
 			return err
 		}
+		if len(expectedPlayback) > 0 && expectedPlayback[0] != playbackFingerprint(song) {
+			return fail(409, "播放探测来源绑定已变化")
+		}
 		fp := contentFingerprint(song)
 		history, err := s.maps(ctx, tx, "audio-for-song", map[string]any{"song": songID, "fingerprint": fp})
 		if err != nil {
 			return err
 		}
 		for _, job := range history {
-			if str(job, "kind") == "PROBE" && str(job, "state") == "SUCCEEDED" {
+			if str(job, "kind") == "PROBE" && str(job, "state") == "SUCCEEDED" && currentAudioJob(song, job) {
 				return nil
 			}
 		}
@@ -647,6 +732,9 @@ func (s *Service) observeAudio(ctx context.Context, songID string, media map[str
 		stamp := now()
 		values := map[string]any{"id": id, "song_id": songID, "kind": "PROBE", "state": "RUNNING", "fingerprint": fp, "node_origin": "", "created_at": stamp, "updated_at": stamp, "backend": "", "recipe_json": "{}"}
 		if _, err = s.exec(ctx, tx, "audio-insert-job", values); err != nil {
+			return err
+		}
+		if err = s.bindAnalysisRead(ctx, tx, values, false); err != nil {
 			return err
 		}
 		audio := []any{}
@@ -670,32 +758,6 @@ func (s *Service) observeAudio(ctx context.Context, songID string, media map[str
 }
 func (s *Service) discoverAudio(ctx context.Context) {
 	scopes := s.audioScopes()
-	snapshot, err := s.compute.Snapshot(ctx)
-	if err != nil {
-		if scopes != nil {
-			_ = scopes.WaitingForAudioNode(ctx)
-		}
-		return
-	}
-	if snapshot == nil || snapshot.Token == "" {
-		if scopes != nil {
-			_ = scopes.SkipPendingAudio(ctx, "计算节点未配置或已停用")
-		}
-		return
-	}
-	capability, err := s.call(ctx, snapshot, "/internal/v1/status", "GET", nil)
-	if err != nil {
-		if scopes != nil {
-			_ = scopes.WaitingForAudioNode(ctx)
-		}
-		return
-	}
-	if !contains(capability["capabilities"], "media-probe") {
-		if scopes != nil {
-			_ = scopes.SkipPendingAudio(ctx, "节点未启用音轨探测阶段")
-		}
-		return
-	}
 	candidates, err := s.maps(ctx, s.db, "audio-candidates", map[string]any{"cursor": s.scanCursor})
 	if err != nil {
 		return
@@ -729,11 +791,52 @@ func (s *Service) discoverAudio(ctx context.Context) {
 			}
 		}
 	}
-	for _, song := range work {
-		if ctx.Err() != nil {
+	// Resolve sources that need no compute before checking node availability.
+	unresolved := make([]string, 0, len(work))
+	for _, id := range work {
+		media, e := s.song(ctx, s.db, id)
+		if e != nil {
+			continue
+		}
+		resolved, e := s.resolveKnownAudio(ctx, id, contentFingerprint(media))
+		if e == nil && !resolved {
+			unresolved = append(unresolved, id)
+		}
+	}
+	work = unresolved
+	if len(work) > 0 {
+		snapshot, err := s.compute.Snapshot(ctx)
+		if err != nil {
+			if scopes != nil {
+				_ = scopes.WaitingForAudioNode(ctx)
+			}
 			return
 		}
-		_ = s.discoverSong(ctx, song, capability)
+		if snapshot == nil || snapshot.Token == "" {
+			if scopes != nil {
+				_ = scopes.SkipPendingAudio(ctx, "计算节点未配置或已停用")
+			}
+			return
+		}
+		capability, err := s.call(ctx, snapshot, "/internal/v1/status", "GET", nil)
+		if err != nil {
+			if scopes != nil {
+				_ = scopes.WaitingForAudioNode(ctx)
+			}
+			return
+		}
+		if !contains(capability["capabilities"], "media-probe") {
+			if scopes != nil {
+				_ = scopes.SkipPendingAudio(ctx, "节点未启用音轨探测阶段")
+			}
+			return
+		}
+		for _, song := range work {
+			if ctx.Err() != nil {
+				return
+			}
+			_ = s.discoverSong(ctx, song, capability)
+		}
 	}
 	if len(candidates) == 0 {
 		s.scanCursor = ""
@@ -756,16 +859,40 @@ func (s *Service) attachDiscovery(ctx context.Context, job map[string]any, origi
 	}
 	return s.transaction(ctx, "AUDIO_JOB", str(job, "id"), func(tx *sqlx.Tx) error { return s.recordAudio(ctx, tx, job, origins, false, false) })
 }
+
+// Resolve manual decisions, package reuse and guaranteed single-audio songs
+// before looking for compute history, so those paths do not create PROBE jobs.
+func (s *Service) resolveKnownAudio(ctx context.Context, songID, fp string) (bool, error) {
+	status, err := s.audioStatus(ctx, songID)
+	if err != nil {
+		return false, err
+	}
+	if str(status, "state") == "CONFIRMED" {
+		return true, s.resolveDiscovery(ctx, songID, fp, "SKIPPED", "音轨角色已可用，无需读取媒体")
+	}
+	d, err := s.library.Formal().Read(ctx, s.db, songID)
+	if err != nil {
+		return false, err
+	}
+	if state, ok := d.States["audioRoles"]; ok && state.Decision == "CLEAR" {
+		return true, s.resolveDiscovery(ctx, songID, fp, "SKIPPED", "保留本机人工清空的音轨决定")
+	}
+	return false, nil
+}
 func (s *Service) discoverSong(ctx context.Context, songID string, capability map[string]any) error {
 	song, err := s.song(ctx, s.db, songID)
 	if err != nil {
 		return err
 	}
 	fp := contentFingerprint(song)
+	if resolved, e := s.resolveKnownAudio(ctx, songID, fp); e != nil || resolved {
+		return e
+	}
 	history, err := s.maps(ctx, s.db, "audio-for-song", map[string]any{"song": songID, "fingerprint": fp})
 	if err != nil {
 		return err
 	}
+	history = currentAudioHistory(song, history)
 	origins := []string{}
 	if scopes := s.audioScopes(); scopes != nil {
 		origins, err = scopes.AudioOrigins(ctx, s.db, songID, fp)

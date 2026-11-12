@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/jmoiron/sqlx"
 	"github.com/mynora-dot/singverse-go-backend/internal/background"
+	"github.com/mynora-dot/singverse-go-backend/internal/metastandard"
 	"sort"
 	"strings"
 )
@@ -24,6 +25,9 @@ func audioCategory(status map[string]any, spec audioRecipe) string {
 		if str(v, "kind") == "SEPARATE" && oneOf(str(v, "state"), "QUEUED", "RUNNING") && str(v, "separationProfile") == spec.profile && str(v, "outputFormat") == spec.format && !boolv(v["preview"]) {
 			return "PROCESSING"
 		}
+	}
+	if str(obj(status["originalSelection"]), "kind") == "UNIQUE_AUDIO" {
+		return "ELIGIBLE"
 	}
 	if _, ok := status["streams"]; !ok {
 		return "UNPROBED"
@@ -109,7 +113,7 @@ func (s *Service) audioCatalog(ctx context.Context) ([]map[string]any, error) {
 	}
 	byJobs := map[string][]map[string]any{}
 	for _, job := range history {
-		if row := media[str(job, "song_id")]; row != nil && str(job, "fingerprint") == contentFingerprint(row) {
+		if row := media[str(job, "song_id")]; row != nil && str(job, "fingerprint") == contentFingerprint(row) && currentAudioJob(row, job) {
 			byJobs[str(job, "song_id")] = append(byJobs[str(job, "song_id")], job)
 		}
 	}
@@ -128,17 +132,26 @@ func (s *Service) audioCatalog(ctx context.Context) ([]map[string]any, error) {
 			v["kind"], v["state"], v["id"] = str(job, "kind"), str(job, "state"), str(job, "id")
 			jobs = append(jobs, v)
 			data := decoded(job["result_json"])
-			if status["streams"] == nil && data["streams"] != nil {
-				status["streams"] = data["streams"]
+			if str(job, "state") == "SUCCEEDED" && status["streams"] == nil && data["streams"] != nil {
+				status["streams"], status["duration"] = data["streams"], data["duration"]
 			}
 			if str(job, "kind") == "SEPARATE" && str(job, "state") == "SUCCEEDED" && regular(s.audioPath(job)) {
 				versions = append(versions, spec.view())
 			}
 		}
 		status["jobs"], status["versions"] = jobs, versions
-		if len(array(status["streams"])) == 1 && str(status, "state") != "CONFIRMED" {
-			status["state"] = "CONFIRMED"
+		if streams := array(status["streams"]); len(streams) == 1 && str(status, "state") != "CONFIRMED" {
+			status["state"], status["originalId"] = "CONFIRMED", str(obj(streams[0]), "id")
 		}
+		doc := metastandard.Document{}
+		if text := str(raw, "formal_audio_json"); text != "" {
+			var e error
+			doc, e = metastandard.Decode([]byte(text))
+			if e != nil {
+				return nil, e
+			}
+		}
+		projectAudioDocument(raw, doc, raw, status)
 		title, _ := titleArtist(song)
 		artists := obj(song["result"])["artists"]
 		metadata := obj(song["metadata"])

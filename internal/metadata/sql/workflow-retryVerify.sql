@@ -1,1 +1,1 @@
-UPDATE media_import_entry SET verification=NULL WHERE job_id=@{id} AND verification IN ('MISSING','MISMATCH','UNREACHABLE')
+UPDATE media_import_entry SET verification=NULL,verification_error=NULL,verification_level=NULL WHERE job_id=@{id} AND song_id IS NOT NULL AND (verification IN ('MISSING','MISMATCH','UNREACHABLE') OR @{resetPresent}=1)

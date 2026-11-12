@@ -16,6 +16,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type analysisReadContextKey struct{}
+
+// WithAnalysisRead is set by trusted internal task handlers, never by request headers.
+func WithAnalysisRead(ctx context.Context) context.Context {
+	return context.WithValue(ctx, analysisReadContextKey{}, true)
+}
+func isAnalysisRead(ctx context.Context) bool {
+	v, _ := ctx.Value(analysisReadContextKey{}).(bool)
+	return v
+}
+
 var byteRange = regexp.MustCompile(`^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$`)
 var contentRange = regexp.MustCompile(`^bytes ([0-9]+)-([0-9]+)/([0-9]+)$`)
 var unsatisfiableRange = regexp.MustCompile(`^bytes \*/[0-9]+$`)
@@ -129,7 +140,11 @@ func (s *Service) ServeOriginalGuard(ctx context.Context, w http.ResponseWriter,
 	s.hookMu.RUnlock()
 	if cached != nil {
 		handled, e := cached(ctx, w, r, id, func(out http.ResponseWriter, req *http.Request) error {
-			return s.remoteOriginal(ctx, out, req, song, src, guard)
+			fetchCtx := ctx
+			if isAnalysisRead(ctx) {
+				fetchCtx = req.Context()
+			}
+			return s.remoteOriginal(fetchCtx, out, req, song, src, guard)
 		}, guard)
 		if handled || e != nil {
 			return e
@@ -228,6 +243,21 @@ func (s *Service) remoteOriginal(ctx context.Context, w http.ResponseWriter, r *
 		w.WriteHeader(416)
 		return nil
 	}
+	if isAnalysisRead(ctx) && response.StatusCode != 206 {
+		switch response.StatusCode {
+		case 401, 403:
+			return &problem{status: 401, detail: "WebDAV 媒体认证失败"}
+		case 404, 410:
+			return &problem{status: 410, detail: "WebDAV 媒体已不存在"}
+		case 409, 412:
+			return &problem{status: 409, detail: "WebDAV 媒体版本已变化"}
+		case 429:
+			return &problem{status: 429, detail: "WebDAV 读取请求过于频繁"}
+		case 200:
+			return &problem{status: 422, detail: "WebDAV 不支持受限范围读取"}
+		}
+		return &problem{status: 502, detail: "WebDAV 媒体读取失败或发生重定向"}
+	}
 	if response.StatusCode != 200 && response.StatusCode != 206 {
 		if response.StatusCode >= 300 && response.StatusCode < 400 {
 			return fail("WebDAV 媒体请求发生重定向，请使用支持直接读取的 WebDAV 地址")
@@ -267,6 +297,10 @@ func (s *Service) remoteOriginal(ctx context.Context, w http.ResponseWriter, r *
 	}
 	if length >= 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+	}
+	if isAnalysisRead(ctx) {
+		w.Header().Set("ETag", response.Header.Get("ETag"))
+		w.Header().Set("Last-Modified", response.Header.Get("Last-Modified"))
 	}
 	w.WriteHeader(response.StatusCode)
 	if r.Method == "HEAD" {

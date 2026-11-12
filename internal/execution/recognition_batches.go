@@ -56,6 +56,9 @@ func recognitionFailure(job map[string]any) string {
 // Confirmed roles are never candidates for bulk re-identification. Unknown
 // stream counts are probed first; only a pair of source tracks can be labelled.
 func recognitionCategory(status map[string]any) string {
+	if str(obj(status["originalSelection"]), "kind") == "UNIQUE_AUDIO" {
+		return "INAPPLICABLE"
+	}
 	if str(status, "state") == "CONFIRMED" && str(status, "backingId") != "" {
 		return "READY"
 	}

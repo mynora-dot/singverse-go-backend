@@ -81,6 +81,8 @@ func (s *Service) Negotiate(ctx context.Context, songID, owner string, body map[
 		}
 		if selected := str(audio, key); selected != "" {
 			request["audio_id"] = selected
+		} else if requested == "original" && str(obj(audio["originalSelection"]), "kind") == "UNIQUE_AUDIO" {
+			delete(request, "audio_id")
 		}
 		delete(request, "audioRole")
 	}
@@ -199,7 +201,7 @@ func (s *Service) startRealtime(ctx context.Context, id, songID, owner, fp, key,
 	if err != nil {
 		return nil, err
 	}
-	_ = s.observeAudio(ctx, songID, obj(plan["media"]))
+	_ = s.observeAudio(ctx, songID, obj(plan["media"]), fp)
 	if str(plan, "mode") == "DIRECT" && !boolv(body["force"]) && !boolv(body["burn_subtitle"]) && body["audio_id"] == nil && body["subtitle_id"] == nil && body["codec"] == nil {
 		_ = s.updateTranscode(ctx, id, "DIRECT", plan, "")
 		v := direct(directURL, "")

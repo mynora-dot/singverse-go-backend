@@ -73,6 +73,7 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 			}
 		}
 	}
+	history = currentAudioHistory(song, history)
 	v := roleView(song, row)
 	jobs := []any{}
 	versions := []any{}
@@ -89,7 +90,7 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 		for _, key := range []string{"backend", "modelVersion", "fallbackReason"} {
 			view[key] = str(data, key)
 		}
-		for _, key := range []string{"stage", "timingsMs", "progress", "inference", "sourceReused", "sourceOffsetSeconds", "precision"} {
+		for _, key := range []string{"stage", "timingsMs", "progress", "inference", "sourceReused", "sourceOffsetSeconds", "precision", "cleanupState", "cleanupError"} {
 			if value, ok := data[key]; ok {
 				view[key] = value
 			}
@@ -101,7 +102,7 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 				view["evidence"] = data["evidence"]
 			}
 		}
-		if v["streams"] == nil {
+		if str(job, "state") == "SUCCEEDED" && v["streams"] == nil {
 			if streams, ok := data["streams"].([]any); ok {
 				v["streams"] = streams
 				if data["duration"] != nil {
@@ -162,6 +163,9 @@ func (s *Service) correctRoles(ctx context.Context, songID, original, backing st
 		}
 		valid := false
 		for _, job := range history {
+			if str(job, "state") != "SUCCEEDED" || !currentAudioJob(song, job) {
+				continue
+			}
 			ids := map[string]bool{}
 			for _, stream := range array(decoded(job["result_json"])["streams"]) {
 				ids[str(obj(stream), "id")] = true
@@ -172,7 +176,18 @@ func (s *Service) correctRoles(ctx context.Context, songID, original, backing st
 			}
 		}
 		if !valid {
-			return fail(409, "请先完成媒体探测后再标记音轨")
+			status, e := s.audioStatusWith(ctx, tx, songID)
+			if e != nil {
+				return e
+			}
+			ids := map[string]bool{}
+			for _, raw := range array(status["streams"]) {
+				ids[str(obj(raw), "id")] = true
+			}
+			valid = str(status, "state") == "CONFIRMED" && len(ids) == 2 && ids[original] && ids[backing]
+		}
+		if !valid {
+			return fail(409, "请先完成媒体探测或资料包目录核验后再标记音轨")
 		}
 		prior, err := s.optional(ctx, tx, "audio-role", map[string]any{"song": songID})
 		if err != nil {
