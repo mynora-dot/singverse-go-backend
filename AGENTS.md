@@ -13,3 +13,5 @@ contracts 是权威契约；消费仓库保存带 SOURCE.json 的快照。前端
 不提交环境文件、凭据、签名密钥、SDK 路径、数据库、日志、缓存或构建产物。发布标签不可覆盖为不同内容；本地开发任务不授权远端推送或发布。
 
 按 README 与 Makefile 运行对应检查。真实 Go/compute 联动通过 SINGVERSE_COMPUTE_PROJECT 显式指定固定检出。交付报告本次实际结果；本机构建和 CI 配置不能代替远程 CI、NAS、手机、TV 或 GPU 真机验收。
+
+通用技能维护在项目外的用户技能目录（`$CODEX_HOME/skills`，默认 `~/.codex/skills`），按任务读取；不在仓库内保存技能副本。

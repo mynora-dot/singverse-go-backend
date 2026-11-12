@@ -163,3 +163,6 @@ test-output/
 !/docs/multi-repository.md
 
 !/docs/backend.md
+
+# Personal agent skills are maintained outside this repository.
+/skills/
