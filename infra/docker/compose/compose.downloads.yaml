@@ -1,0 +1,9 @@
+services:
+  singverse-go-backend:
+    volumes:
+      - type: bind
+        source: '${SINGVERSE_DOWNLOAD_PATH:?Set an existing absolute host directory}'
+        target: /downloads
+        read_only: false
+        bind:
+          create_host_path: false

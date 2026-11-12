@@ -1,0 +1,9 @@
+services:
+  singverse-go-backend:
+    image: singverse:local
+    build:
+      context: .
+      dockerfile: infra/docker/build/app.Dockerfile
+      target: singverse
+      args:
+        SOURCE_REVISION: '${SINGVERSE_SOURCE_REVISION:-local}'

@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/.."
+. ./scripts/go-env.sh
+export STATICCHECK_CACHE="${STATICCHECK_CACHE:-$PWD/.tools/staticcheck-cache}"
+repo=$PWD
+gofmt_bin="$(go env GOROOT)/bin/gofmt"
+formatting=$(find cmd internal -type f -name '*.go' -exec "$gofmt_bin" -l {} +)
+if [ -n "$formatting" ]; then
+  printf '%s\n' "$formatting" >&2
+  echo 'Run gofmt on the listed files.' >&2
+  exit 1
+fi
+for executable in staticcheck govulncheck; do
+  if [ ! -x "$repo/.tools/go/bin/$executable" ]; then
+    echo 'Run make go-tools-setup first.' >&2
+    exit 1
+  fi
+done
+go vet ./...
+"$repo/.tools/go/bin/staticcheck" ./...
+"$repo/.tools/go/bin/govulncheck" ./...
+go test -race -p 4 ./...

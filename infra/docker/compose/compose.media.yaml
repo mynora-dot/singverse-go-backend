@@ -1,0 +1,9 @@
+services:
+  singverse-go-backend:
+    volumes:
+      - type: bind
+        source: '${SINGVERSE_MEDIA_PATH:?Set an existing absolute host directory}'
+        target: /media
+        read_only: true
+        bind:
+          create_host_path: false

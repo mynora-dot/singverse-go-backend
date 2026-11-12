@@ -1,0 +1,165 @@
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+key.properties
+*.pem
+*.key
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.iml
+*.swp
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+coverage/
+# Android / Gradle
+.gradle/
+.kotlin/
+local.properties
+captures/
+# All build output
+build/
+# Infrastructure build inputs are source files, not generated build output.
+!/infra/docker/build/
+/infra/docker/build/*
+!/infra/docker/build/.dockerignore
+!/infra/docker/build/app.Dockerfile
+!/infra/docker/build/app.Dockerfile.dockerignore
+!/infra/docker/build/compute.Dockerfile
+!/infra/docker/build/compute.Dockerfile.dockerignore
+!/infra/docker/build/compute/
+!/infra/docker/build/compute/**
+/services/singverse-go-backend/bin/
+target/
+dist/
+node_modules/
+.pnpm-store/
+*.log
+*.apk
+*.aab
+*.apks
+*.hprof
+# Python local environment and build metadata
+.venv/
+.venv-audio-*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+# WeChat developer local settings
+project.private.config.json
+# SQLite runtime files
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+# Preserve required wrapper binaries and lock files
+!**/gradle/wrapper/gradle-wrapper.jar
+!**/pubspec.lock
+!**/pnpm-lock.yaml
+/data
+/services/*/data/
+
+.tools/
+*.auth.lock
+
+# Downloaded inference weights and converted models (manifests stay in Git)
+*.th
+*.pth
+*.pt
+*.safetensors
+*.onnx
+*.rknn
+htdemucs_fwd.xml
+htdemucs_fwd.bin
+
+# Offline model bundles and Docker image exports
+htdemucs*.zip
+compute-image*.tar
+compute-image*.tar.gz
+singverse-compute*.tar
+singverse-compute*.tar.gz
+
+# Generated container identity; source is core/build_info.py
+/services/singverse-compute/singverse_compute/core/build.json
+
+/docs/*
+# Reviewable documentation for the Go replacement; historical studies stay local.
+!/docs/architecture.md
+!/docs/admin-experience.md
+!/docs/authentication.md
+!/docs/development.md
+!/docs/docker.md
+!/docs/go-migration.md
+!/docs/go-migration-verification.md
+!/docs/repository-layout.md
+!/docs/database-strategy.md
+!/docs/lx-downloads.md
+!/docs/ai-settings.md
+!/docs/artist-library.md
+!/docs/batch-metadata-workbench.md
+!/docs/compute-architecture.md
+!/docs/filename-rules.md
+!/docs/library-search.md
+!/docs/media-library.md
+!/docs/media-scan-schedule.md
+!/docs/metadata-scraping.md
+!/docs/playlists.md
+!/docs/single-song-review.md
+!/docs/song-classification.md
+!/docs/transcoding.md
+# Unapproved design explorations, prototypes, and review screenshots remain local.
+/docs/design/
+
+# Local credentials and task/runtime state (keep placeholder .env.example files)
+*.p12
+*.pfx
+*.token
+*-token
+token
+credentials.json
+secrets/
+.run/
+
+# Local implementation records (referenced only from ignored docs/)
+/contracts/song-cache-implementation.md
+
+# Temporary work, generated deployment bundles and local media/model outputs
+.tmp/
+/tmp/
+/temp/
+*.tmp
+*.temp
+*.part
+*.pid
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+/media/
+/models/
+test-output/
+
+/bin/
+/.build/
+!/docs/third-party/
+!/docs/third-party/**
+!/docs/verification.md
+!/docs/multi-repository.md
+
+!/docs/backend.md
