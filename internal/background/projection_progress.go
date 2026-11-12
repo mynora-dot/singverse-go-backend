@@ -60,7 +60,7 @@ func (p *taskProjection) applyCounts(kind string, source doc, groups []doc) {
 	}
 	p.row["items_available"] = 1
 	rawStatus := text(source, "raw_status")
-	if rawStatus == "COMPLETED" && number(p.counts, "FAILED") > 0 {
+	if rawStatus == "COMPLETED" && (number(p.counts, "FAILED") > 0 || (kind == "AUDIO_BATCH" && number(p.counts, "REVIEW") > 0)) {
 		p.row["status"] = "PARTIAL"
 	}
 	if kind == "AUDIO_BATCH" && rawStatus == "QUEUED" && running > 0 {

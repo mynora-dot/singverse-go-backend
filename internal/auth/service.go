@@ -110,13 +110,20 @@ func (s *Service) transaction(ctx context.Context, fn func(*sqlx.Tx) (any, error
 	return result, err
 }
 
-type issued struct{ token, kind string }
+const persistentSessionTTL int64 = 30 * 24 * 60 * 60 * 1000
+const passwordResetTTL int64 = 15 * 60 * 1000
+
+type issued struct {
+	token, kind string
+	persistent  bool
+}
 type tokenRow struct {
-	csrf     string
-	attempts int
+	csrf       string
+	attempts   int
+	persistent bool
 }
 
-func (s *Service) issue(ctx context.Context, q dbtx, kind string) (issued, error) {
+func (s *Service) issue(ctx context.Context, q dbtx, kind string, persist ...bool) (issued, error) {
 	now := s.now()
 	if _, err := exec(ctx, q, "expire_tokens", now, now-1800000); err != nil {
 		return issued{}, err
@@ -134,11 +141,15 @@ func (s *Service) issue(ctx context.Context, q dbtx, kind string) (issued, error
 		return issued{}, err
 	}
 	ttl := int64(300000)
+	persistent := len(persist) > 0 && persist[0] && (kind == "session" || kind == "challenge")
 	if kind == "session" {
 		ttl = 28800000
+		if persistent {
+			ttl = persistentSessionTTL
+		}
 	}
-	_, err = exec(ctx, q, "issue", digest(token), kind, csrf, now, now, now+ttl, a.Revision)
-	return issued{token, kind}, err
+	_, err = exec(ctx, q, "issue", digest(token), kind, csrf, now, now, now+ttl, a.Revision, persistent)
+	return issued{token: token, kind: kind, persistent: persistent}, err
 }
 
 func (s *Service) lookup(ctx context.Context, q dbtx, value, kind string) (*tokenRow, error) {
@@ -150,7 +161,7 @@ func (s *Service) lookup(ctx context.Context, q dbtx, value, kind string) (*toke
 		return nil, err
 	}
 	var token tokenRow
-	err = q.QueryRowContext(ctx, statements["find_token"], digest(value), kind, s.now(), s.now()-1800000, a.Revision).Scan(&token.csrf, &token.attempts)
+	err = q.QueryRowContext(ctx, statements["find_token"], digest(value), kind, s.now(), s.now()-1800000, a.Revision).Scan(&token.csrf, &token.attempts, &token.persistent)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -230,7 +241,7 @@ func passwordValid(value string, a account) bool {
 	return len(utf16.Encode([]rune(value))) <= 256 && matchesPassword(value, a.PasswordHash)
 }
 
-func (s *Service) login(ctx context.Context, q dbtx, username, password, address string) (issued, error) {
+func (s *Service) login(ctx context.Context, q dbtx, username, password, address string, persist ...bool) (issued, error) {
 	if err := s.checkLimit(ctx, q, address); err != nil {
 		return issued{}, err
 	}
@@ -244,7 +255,7 @@ func (s *Service) login(ctx context.Context, q dbtx, username, password, address
 		return issued{}, s.credentialsRejected(ctx, q, address)
 	}
 	if a.Secret.Valid {
-		return s.issue(ctx, q, "challenge")
+		return s.issue(ctx, q, "challenge", persist...)
 	}
 	if err = s.success(ctx, q, address); err != nil {
 		return issued{}, err
@@ -252,7 +263,7 @@ func (s *Service) login(ctx context.Context, q dbtx, username, password, address
 	if err = recordEvent(ctx, q, "login_succeeded", s.now()); err != nil {
 		return issued{}, err
 	}
-	return s.issue(ctx, q, "session")
+	return s.issue(ctx, q, "session", persist...)
 }
 
 func (s *Service) verifyFactor(ctx context.Context, q dbtx, code string, a account) (bool, error) {
@@ -314,7 +325,7 @@ func (s *Service) complete(ctx context.Context, q dbtx, token, code, address str
 	if err = recordEvent(ctx, q, "mfa_login_succeeded", s.now()); err != nil {
 		return issued{}, err
 	}
-	return s.issue(ctx, q, "session")
+	return s.issue(ctx, q, "session", row.persistent)
 }
 
 func (s *Service) reauthenticate(ctx context.Context, q dbtx, password, code, address string) error {

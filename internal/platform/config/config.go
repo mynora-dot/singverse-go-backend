@@ -129,7 +129,7 @@ func Parse(get func(string) string) (Config, error) {
 		}
 	}
 	c.SongCachePath = value("SINGVERSE_SONG_CACHE_PATH", filepath.Join(c.TranscodePath, "cache"))
-	c.SongCacheBytes, err = strconv.ParseInt(value("SINGVERSE_SONG_CACHE_BYTES", "10737418240"), 10, 64)
+	c.SongCacheBytes, err = strconv.ParseInt(value("SINGVERSE_SONG_CACHE_BYTES", "53687091200"), 10, 64)
 	if err != nil || c.SongCacheBytes < 0 {
 		return c, errors.New("invalid cache size")
 	}

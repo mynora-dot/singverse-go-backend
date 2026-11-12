@@ -26,6 +26,23 @@ make go-backend-build FRONTEND_DIST=/absolute/path/to/frontend/dist
 
 ## Docker 打包与部署
 
+本地联调前端、Go 与计算节点（不依赖已发布的客户端包）：
+
+```sh
+cp .env.local.example .env.local
+# 编辑 .env.local，填写前端和 compute 仓库的绝对路径。
+make docker-local-up
+make docker-local-status
+# 停止并保留挂载数据：
+make docker-local-down
+```
+
+Docker Desktop 中的项目为 `singverse-go-app`。前端在构建时嵌入 `singverse-go-backend`，计算节点为 `singverse-compute`；另有一次性目录初始化服务。管理入口为 <http://127.0.0.1:18080/admin/>，初始账号 `admin/admin`，计算节点健康检查为 <http://127.0.0.1:18090/health>。本地配置和 `data/docker/` 下的数据库、密钥、媒体、模型、缓存与下载目录均已加入 Git 忽略，构建上下文也排除运行数据。详细说明见 [本地 Docker 部署](infra/docker/README.md)。
+
+需要客户端下载时，先执行 `make docker-local-releases MOBILE_RELEASE_DIR=/absolute/mobile-release TV_RELEASE_DIR=/absolute/tv-release`，校验后的本地联调包会在下一次 `docker-local-up` 中打入镜像。手机和电视访问前，将 `.env.local` 的 `SINGVERSE_HTTP_BIND` 设置为本机局域网 IP，再用 `http://<该IP>:18080/downloads/` 打开下载页和二维码。
+
+Mac Docker 的手机 / TV 自动发现还需在宿主机另开终端运行 `make lan-discovery` 并保持运行。它验证容器实际发布的 HTTP 入口后发布 `_singverse._tcp`；Ctrl-C 停止，重启 Mac 后重新运行。Docker 端口映射本身不发布发现记录。Linux NAS 与原生 Go 的配置见[局域网发现](infra/docker/README.md#手机和-tv-的局域网发现)。
+
 首次正式发布按手机、TV、前端、Go 的顺序进行。两个 Android 仓库配置各自长期签名，并发布 APK、release.json、SHA256SUMS；前端发布完整静态包。详见[多仓库协作](docs/multi-repository.md)和[发布配置](infra/docker/PUBLISHING.md)。
 
 ```sh

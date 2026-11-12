@@ -1,0 +1,6 @@
+# Apply after compose.yaml and compose.local.yaml; run compute natively on Mac.
+services:
+  singverse-go-backend:
+    environment:
+      COMPUTE_NODE_URL: http://host.docker.internal:18090
+      SINGVERSE_COMPUTE_AUTO_CALLBACK_ORIGIN: '${SINGVERSE_MACOS_CALLBACK_ORIGIN:?Set the Go origin reachable from this Mac in .env.local}'

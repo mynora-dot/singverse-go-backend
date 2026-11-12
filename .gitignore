@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.local.example
 *.jks
 *.keystore
 key.properties
@@ -33,6 +34,8 @@ build/
 !/infra/docker/build/.dockerignore
 !/infra/docker/build/app.Dockerfile
 !/infra/docker/build/app.Dockerfile.dockerignore
+!/infra/docker/build/local.Dockerfile
+!/infra/docker/build/local.Dockerfile.dockerignore
 !/infra/docker/build/compute.Dockerfile
 !/infra/docker/build/compute.Dockerfile.dockerignore
 !/infra/docker/build/compute/
@@ -73,6 +76,8 @@ project.private.config.json
 !**/pubspec.lock
 !**/pnpm-lock.yaml
 /data
+# Local Docker bind mounts: database, credentials, media, models and caches.
+/data/docker/
 /services/*/data/
 
 .tools/

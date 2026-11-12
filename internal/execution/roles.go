@@ -263,7 +263,7 @@ func (s *Service) verifyImported(ctx context.Context, tx store.DBTX, songID, fp 
 			return err
 		}
 	}
-	if str(claim, "state") != "CONFIRMED" || encoded(claim["streams"]) != encoded(probe["streams"]) || math.Abs(number(claim["duration"])-number(probe["duration"])) > .25 {
+	if str(claim, "state") != "CONFIRMED" || !matchingAudioStreams(claim["streams"], probe["streams"]) || math.Abs(number(claim["duration"])-number(probe["duration"])) > .25 {
 		return nil
 	}
 	ids := map[string]bool{}

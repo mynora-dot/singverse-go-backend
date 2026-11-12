@@ -336,6 +336,10 @@ func related(r doc) string {
 	case "CLASSIFICATION":
 		return "/library/classification?task=" + business
 	case "AUDIO_BATCH":
+		kind := text(object(read(r["statistics_json"]), "execution"), "audioBatchKind")
+		if kind == "FAST" || kind == "ANALYZE" {
+			return "/library/audio-processing?tab=recognition&batch=" + business
+		}
 		return "/library/audio-processing?tab=tasks&batch=" + business
 	case "AUDIO_JOB":
 		return "/library/audio-processing?song=" + song

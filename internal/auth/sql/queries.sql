@@ -3,17 +3,19 @@ SELECT username,password_hash,default_password,mfa_secret,pending_secret,pending
 -- name: bootstrap
 INSERT INTO auth_account(id,username,password_hash,default_password) VALUES(1,'admin',?,1);
 -- name: issue
-INSERT INTO auth_token(token_hash,kind,csrf,created_at,last_seen,expires_at,attempts,revision) VALUES(?,?,?,?,?,?,0,?);
+INSERT INTO auth_token(token_hash,kind,csrf,created_at,last_seen,expires_at,attempts,revision,persistent) VALUES(?,?,?,?,?,?,0,?,?);
 -- name: expire_tokens
-DELETE FROM auth_token WHERE expires_at < ? OR last_seen < ?;
+DELETE FROM auth_token WHERE expires_at <= ? OR (persistent=0 AND last_seen <= ?);
 -- name: find_token
-SELECT csrf,attempts FROM auth_token WHERE token_hash=? AND kind=? AND expires_at>? AND last_seen>? AND revision=?;
+SELECT csrf,attempts,persistent FROM auth_token WHERE token_hash=? AND kind=? AND expires_at>? AND (persistent=1 OR last_seen>?) AND revision=?;
 -- name: touch_token
 UPDATE auth_token SET last_seen=? WHERE token_hash=?;
 -- name: revoke
 DELETE FROM auth_token WHERE token_hash=?;
 -- name: revoke_all
 DELETE FROM auth_token;
+-- name: revoke_password_resets
+DELETE FROM auth_token WHERE kind='password_reset';
 -- name: throttle
 SELECT failures,blocked_until,updated_at FROM auth_throttle WHERE bucket=?;
 -- name: insert_throttle

@@ -2,6 +2,8 @@
 
 首批业务 API 为单管理员账号、会话和 MFA，见 [singverse.openapi.json](singverse.openapi.json)（OpenAPI 3.1）。客户端与Go 服务端遵循同一接口；后续仅为真实功能扩充契约。
 
+网页登录新增浏览器密码管理、可选 30 天自动登录（`Login.autoLogin`）和部署主机一次性重置码改密（`POST /api/v1/auth/password/reset`）。旧登录字段保持兼容，普通会话期限不变；完整流程与失效规则见[登录与密码重置](../auth-login.md)。
+
 - 路径版本：未来业务接口以 `/api/v1` 开始。破坏性变化使用新主版本；增加可选字段一般保持当前版本。
 - JSON 字段统一 lower camelCase；不暴露 Go 类名、Entity、堆栈或语言专属对象。
 - 错误采用 RFC 9457 Problem Details，媒体类型 `application/problem+json`，使用标准 `type`、`title`、`status`、`detail`、`instance` 字段。具体业务错误标识在真实接口出现时定义，不向客户端泄露凭据和内部实现。
@@ -169,7 +171,7 @@ Go 服务内嵌8张音乐主题默认封面，无需外部图片服务。首次�
 
 管理员 `GET /api/v1/transcoding/cache` 按 `page`（默认0，上限1000000）、`size`（默认20，上限100）分页查看 Go 服务节点完整成功的实时 HLS 与已发布完整块的 WebDAV 原片缓存，按 `lastAccessAt` 倒序和 ID 升序。返回设置、Go 缓存目录实际用量、缓存条目总数，以及包含缓存 ID、可用歌曲名称/歌手、音频/视频类型（`mediaType=VIDEO|AUDIO`）、已缓存大小、生成/访问时间、复用次数、租约状态和输出参数的条目；不暴露来源路径与节点凭据。`target.mode=ORIGINAL` 的条目还含 `cachedBytes/sourceBytes/complete`；部分原片不会标为整曲完成，缺失范围仍受权回源。可选 `residueBytes` 表示损坏或待清理文件的实际磁盘占用，计入总 `usageBytes`，但不计入有效 `bytes/cachedBytes` 或完整度。实际用量可包含接收中的临时文件；列表不包含独立保存的离线兼容成品。
 
-`PUT /api/v1/transcoding/cache/settings` 保存共用容量（整数 bytes，64MiB–1PiB）、`HYBRID|MANUAL`、兼容字段 `ttlHours` 和 `revision`；可选整数百分比 `highWatermarkPercent/lowWatermarkPercent` 默认 90/75，要求 `1≤low<high≤100`。旧四字段请求仍有效，省略水位保留已存值，未知字段返回400、旧修订返回409。已有 LRU/LFU/TTL 自动迁移为 HYBRID 并增加修订，旧策略写入作为 HYBRID 别名兼容；MANUAL 保留，`ttlHours` 仅保留往返兼容，不再控制到期删除。部署容量只负责首次初始化，后续以数据库设置为准；磁盘最低保留空间仍独立生效。
+`PUT /api/v1/transcoding/cache/settings` 保存共用容量（整数 bytes，64MiB–1PiB）、`HYBRID|MANUAL`、兼容字段 `ttlHours` 和 `revision`；可选整数百分比 `highWatermarkPercent/lowWatermarkPercent` 默认 90/75，要求 `1≤low<high≤100`。旧四字段请求仍有效，省略水位保留已存值，未知字段返回400、旧修订返回409。已有 LRU/LFU/TTL 自动迁移为 HYBRID 并增加修订，旧策略写入作为 HYBRID 别名兼容；MANUAL 保留，`ttlHours` 仅保留往返兼容，不再控制到期删除。部署默认预算为 50 GiB；未手动保存设置（revision=0）时，每次启动按缓存目录所在磁盘的可用空间检测，不足预算则使用剩余空间的 80%。自动预算可能低于手动设置的 64 MiB 下限，磁盘满时为 0；管理员保存后以数据库设置为准。磁盘最低保留空间仍独立生效。
 
 混合分数为 `S=0.4H+0.4R+0.2F`：H 每次有效播放增加0.05并限幅至1后按14天半衰期衰减；普通递增事件以O(1)聚合，晚到有效事件仅对同歌按发生时间顺序重折叠以保留限幅语义。R 从最近实际播放活动起按7天半衰期衰减，`F=min(1,ln(1+近7×24h有效次数)/ln(21))`。只有单次实例达到30秒真实播放或短曲完整结束才增加一次 H/F；管理员试听只更新活动保护与 R，不计热门。预取、Range、下载、定位和租约续期不增加热度。3天软保留通过可衰减加分进入 `priority`，不是不可回收的硬保护。生命周期 HOT 为近7天且至少3次有效播放，WARM 为未满30天，COLD 为30–60天，EVICT 为60天及以上；未播放条目以创建时间分层。列表增加 `H/R/F/score/priority/lifecycle/playCount7d/lastPlayedAt`、`pinned/pinRevision/protectionReasons` 和 `state=ACTIVE|DELETING`，可选 `usageReady/statisticsReady/committedBytes/reservedBytes/cleanupGeneration` 区分准备中和真实零值。
 
@@ -200,6 +202,16 @@ Go 服务内嵌8张音乐主题默认封面，无需外部图片服务。首次�
 `POST /api/v1/audio-processing/batches/preview` 返回 202，批次先处于 `PREPARING`，包含 `selectionTotal`、`prepared` 和 `error`。通过原详情接口轮询，完成后为 `PREVIEW`，此时才能提交；准备中提交返回 409。准备中可调用原取消接口，重启时未完成准备转为 `FAILED`。所选歌曲及指纹在创建时固定，每 200 条短事务写入，执行前继续核对当前指纹；数据库采用新增迁移，原有批次保留。
 
 已删除只返回 410 的旧歌手创建、编辑、绑定和 credits 接口。自动歌手库、图片管理、分类及歌曲歌手订正仍使用现有实际接口。旧 `ComputeNodeClient` 及未注册的路径标签接口已删除；连接和回源验证覆盖真实 `ComputeNodeProbe` 链路。
+
+## 批量重新识别原唱与伴奏
+
+`POST /api/v1/audio-processing/batches/preview` 新增 `kind=SEPARATE|FAST|ANALYZE`，省略仍为伴奏生成。FAST 快速识别、ANALYZE 深度识别复用既有音轨处理链路，支持显式勾选和全部筛选结果快照。`state=UNRECOGNIZED` 筛选音轨未探测或双音轨尚未确认的歌曲，包括首次扫描识别失败及结果不确定的歌曲；快速识别不要求伴奏分离环境，仅需节点的 `audio-role-fast` 能力，深度识别沿用已就绪的分离环境。
+
+识别批次先探测未知音轨，仅对未确认的双音轨区分原唱和伴奏。已有确认标记保留；单音轨（包括双声道）、无音轨或多于两条音轨会跳过，不生成新的伴奏文件。后台逐首处理，继续校验媒体指纹；可靠结果自动保存并计 `SUCCEEDED`，不确定结果计终态 `REVIEW`（待人工确认），不冒充成功。可通过现有接口取消整批或单首；已保存的标记保留。
+
+批次列表支持 `kind=SEPARATE|FAST|ANALYZE|RECOGNIZE`，省略返回全部，RECOGNIZE 合并两种识别方式，筛选在分页前生效。重试接口包括 FAILED 和 REVIEW，识别批次可传 `kind=ANALYZE` 改用深度识别，不能将生成批次改为识别。任务中心沿用 AUDIO_BATCH 类型并跳转到对应的识别任务页。所有写入仍需管理员 Cookie、同源与 CSRF；数据库通过新增迁移保留旧批次，计算节点不直接写业务数据库。
+
+音轨校验同时兼容扫描保留的 FFprobe 原始字段（`codec_type/codec_name/index`）和计算节点的结构化字段（`kind/codec/id`），按来源音轨标识、序号、编码、声道、语言、标题及时间线核验。完整视频观测继续保留。启动时由 Go 在核验当前媒体指纹和已确认标记后修复历史误标为 REVIEW 的可靠识别回执；手动订正、清除和真正不确定的结果不改成识别成功。
 
 ## 后台任务中心
 

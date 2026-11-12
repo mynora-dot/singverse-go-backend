@@ -147,7 +147,7 @@ def verify_apk(directory, platform, release, apksigner, aapt):
     metadata = json.loads((directory / "release.json").read_text())
     name = release["tag_name"].removeprefix("v")
     expected = {"schemaVersion": 1, "platform": platform, "packageName": "com.mynora.singverse." + platform,
-                "versionName": name, "versionCode": android_code(name), "minSdk": 24 if platform == "mobile" else 23}
+                "versionName": name, "versionCode": android_code(name), "minSdk": 24 if platform == "mobile" else 21}
     if not isinstance(metadata, dict) or any(type(metadata.get(k)) is not type(value) or metadata[k] != value for k, value in expected.items()):
         raise ValueError("APK metadata does not match release: " + platform)
     if type(metadata.get("size")) is not int or not 0 < apk.stat().st_size <= MAX_APK or metadata["size"] != apk.stat().st_size:

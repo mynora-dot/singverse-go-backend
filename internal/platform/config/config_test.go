@@ -15,4 +15,7 @@ func TestConfigurationValidation(t *testing.T) {
 	if c.Driver != "sqlite" || c.Address != "127.0.0.1:8080" || c.DiagnosticsAddress != "" {
 		t.Fatal("unsafe defaults")
 	}
+	if c.SongCacheBytes != 50<<30 {
+		t.Fatalf("default song cache budget = %d, want 50 GiB", c.SongCacheBytes)
+	}
 }

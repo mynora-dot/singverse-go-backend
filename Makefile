@@ -4,9 +4,29 @@ PYTHON ?= python3
 GO_BACKEND_IMAGE ?= singverse:local
 APP_COMPOSE = docker compose --project-directory . -f infra/docker/compose/compose.yaml
 SOURCE_COMPOSE = $(APP_COMPOSE) -f infra/docker/compose/compose.build.yaml
+LOCAL_COMPOSE = docker compose --env-file .env.local --project-directory . -f infra/docker/compose/compose.yaml -f infra/docker/compose/compose.local.yaml --profile compute
 FRONTEND_ARGS = $(if $(FRONTEND_DIST),--frontend-dist "$(FRONTEND_DIST)",)
 LOCK_ARGS = $(if $(COMPONENT_LOCK),--lock "$(COMPONENT_LOCK)",)
 .PHONY: help go-tools-setup dbmate-setup go-backend-assets go-backend-build go-backend-test go-backend-run web-check db-fresh-check db-sqlite-check go-mysql-check db-mysql-check go-compute-check backend-check go-recovery-check platform-assets docker-build docker-up docker-down docker-pull docker-image-up docker-status docker-logs docker-check docker-config-check docker-context-check docker-test go-container-check auth-docker-check metadata-standard-check verify
+.PHONY: docker-local-up docker-local-down docker-local-status docker-local-logs docker-local-releases
+.PHONY: docker-macos-up
+.PHONY: lan-discovery
+lan-discovery:
+	$(PYTHON) scripts/lan-discovery.py $(if $(DISCOVERY_CONTAINER),--container "$(DISCOVERY_CONTAINER)",)
+docker-macos-up:
+	$(PYTHON) scripts/deploy-macos.py
+docker-local-releases:
+	$(PYTHON) scripts/prepare-local-releases.py $(if $(MOBILE_RELEASE_DIR),--mobile-release "$(MOBILE_RELEASE_DIR)",) $(if $(TV_RELEASE_DIR),--tv-release "$(TV_RELEASE_DIR)",)
+docker-local-up:
+	mkdir -p .build/local-releases
+	$(LOCAL_COMPOSE) build singverse-go-backend singverse-compute
+	$(LOCAL_COMPOSE) up -d --no-build --pull never --wait --wait-timeout 180
+docker-local-down:
+	$(LOCAL_COMPOSE) down
+docker-local-status:
+	$(LOCAL_COMPOSE) ps -a
+docker-local-logs:
+	$(LOCAL_COMPOSE) logs -f --tail 100
 go-tools-setup:
 	sh scripts/setup-go-tools.sh
 dbmate-setup:
@@ -67,4 +87,6 @@ auth-docker-check:
 	$(PYTHON) infra/docker/check-auth-docker.py --backend-image "$(GO_BACKEND_IMAGE)"
 verify: go-backend-test web-check db-fresh-check docker-test docker-config-check
 help:
+	@printf '%s\n' 'Local Docker: copy .env.local.example to .env.local, then docker-local-up docker-local-status docker-local-logs docker-local-down' 'Local APKs: docker-local-releases MOBILE_RELEASE_DIR=/absolute/mobile-release TV_RELEASE_DIR=/absolute/tv-release (requires apksigner/aapt)'
+	@printf '%s\n' 'Mac LAN discovery: lan-discovery (run on the Docker host in a separate terminal; Ctrl-C stops advertising)'
 	@printf '%s\n' 'Go: go-tools-setup dbmate-setup go-backend-build go-backend-test go-backend-run' 'Local frontend: FRONTEND_DIST=/absolute/path/to/dist' 'Platform: platform-assets docker-build docker-up docker-pull docker-image-up docker-down' 'Retry fixed inputs: COMPONENT_LOCK=/absolute/path/components.lock.json' 'Checks: web-check db-fresh-check db-sqlite-check go-mysql-check docker-test docker-config-check docker-context-check' 'Explicit integration: SINGVERSE_COMPUTE_PROJECT=/absolute/path/to/prepared/checkout make go-compute-check'

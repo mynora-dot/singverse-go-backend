@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"fmt"
 	"math"
 
 	"github.com/mynora-dot/singverse-go-backend/internal/metastandard"
@@ -30,11 +31,51 @@ func (s *Service) saveFormalProbe(ctx context.Context, tx store.DBTX, media stri
 func audioOnly(streams any) []any {
 	out := []any{}
 	for _, raw := range array(streams) {
-		if str(obj(raw), "kind") == "audio" {
+		stream := obj(raw)
+		if str(stream, "kind") == "audio" || str(stream, "codec_type") == "audio" {
 			out = append(out, raw)
 		}
 	}
 	return out
+}
+
+// Scanning retains FFprobe's source fields while compute returns Stream views.
+// Compare the same source identity in both representations, without replacing
+// a complete video observation with an audio-only probe.
+func matchingAudioStreams(first, second any) bool {
+	canonical := func(value any) []any {
+		out := []any{}
+		for _, raw := range audioOnly(value) {
+			stream := obj(raw)
+			id := str(stream, "id")
+			if id == "" && stream["index"] != nil {
+				id = fmt.Sprintf("stream:%d", integer(stream["index"]))
+			}
+			codec := str(stream, "codec")
+			if codec == "" {
+				codec = str(stream, "codec_name")
+			}
+			tags := obj(stream["tags"])
+			language, title := str(stream, "language"), str(stream, "title")
+			if language == "" {
+				language = str(tags, "language")
+			}
+			if language == "" {
+				language = "und"
+			}
+			if title == "" {
+				title = str(tags, "title")
+			}
+			runes := []rune(title)
+			if len(runes) > 120 {
+				title = string(runes[:120])
+			}
+			out = append(out, map[string]any{"id": id, "index": integer(stream["index"]), "codec": codec, "channels": integer(stream["channels"]), "language": language, "title": title})
+		}
+		return out
+	}
+	a, b := canonical(first), canonical(second)
+	return len(a) > 0 && encoded(a) == encoded(b)
 }
 
 // Shared claims are retained as formal metadata, but playback only adopts them
@@ -76,7 +117,7 @@ func (s *Service) projectFormalRoles(ctx context.Context, db store.DBTX, id stri
 		if err != nil {
 			return err
 		}
-		if encoded(claim["streams"]) != encoded(value["streams"]) || math.Abs(number(claim["duration"])-number(value["duration"])) > .25 {
+		if !matchingAudioStreams(claim["streams"], value["streams"]) || math.Abs(number(claim["duration"])-number(value["duration"])) > .25 {
 			return nil
 		}
 	}

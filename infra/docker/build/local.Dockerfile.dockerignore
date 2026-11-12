@@ -1,0 +1,14 @@
+**
+!VERSION
+!go.mod
+!go.sum
+!cmd/**
+!internal/**
+!database/migrations/**
+internal/web/dist/
+**/.git
+**/data
+**/.env*
+**/*.key
+**/*.db
+**/*.log

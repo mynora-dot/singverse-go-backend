@@ -29,7 +29,7 @@ func (s *Service) listAudioBatchesHTTP(c *gin.Context) {
 	if !ok {
 		return
 	}
-	s.respond(c, 200, func(ctx context.Context) (any, error) { return s.batches(ctx, page, size) })
+	s.respond(c, 200, func(ctx context.Context) (any, error) { return s.batches(ctx, page, size, c.Query("kind")) })
 }
 
 func (s *Service) audioBatchHTTP(c *gin.Context) {
@@ -63,5 +63,7 @@ func (s *Service) retryAudioBatchHTTP(c *gin.Context) {
 			return
 		}
 	}
-	s.respond(c, 202, func(ctx context.Context) (any, error) { return s.retryBatch(ctx, c.Param("id"), str(body, "backend")) })
+	s.respond(c, 202, func(ctx context.Context) (any, error) {
+		return s.retryBatch(ctx, c.Param("id"), str(body, "backend"), str(body, "kind"))
+	})
 }

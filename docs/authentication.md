@@ -13,7 +13,7 @@ MFA使用RFC6238 TOTP：认证器扫描本地生成的二维码（或输入手�
 ## 会话、接口与存储
 
 - 正式Cookie为singverse_session，受限MFA阶段为singverse_challenge，匿名CSRF上下文为singverse_csrf；均HttpOnly、SameSite=Lax、Path=/、无Domain。HTTPS模式加Secure。浏览器不持久化令牌到localStorage。
-- 会话空闲30分钟、绝对8小时失效，MFA阶段与绑定有效5分钟，最多5次失败。账号与来源地址共同限流，5次失败后指数冷却，最大15分钟，429携带Retry-After；成功完成认证清除对应限流。安全事件仅保存事件类型与时间，保留90天。
+- 普通会话空闲30分钟、绝对8小时失效；勾选自动登录后，完整认证会话绝对30天有效，使用持久HttpOnly Cookie，不受普通空闲期限限制。MFA阶段与绑定有效5分钟，最多5次失败。账号与来源地址共同限流，5次失败后指数冷却，最大15分钟，429携带Retry-After；成功完成认证清除对应限流。安全事件仅保存事件类型与时间，保留90天。
 - 每次写操作先GET /api/v1/auth/csrf，将返回token置于X-CSRF-Token头。登录、MFA完成等Cookie切换后重新获取。跨来源请求被拒绝，所有API响应禁止缓存。接口见[OpenAPI](../contracts/openapi/singverse.openapi.json)。
 - 密码是标准Argon2id PHC字符串：v19、m19456 KiB、t2、p1、16字节盐、32字节输出，无Spring前缀。会话令牌是32字节随机值的无填充Base64URL，数据库仅保存SHA256十六进制摘要；恢复码为16随机字节的小写十六进制，仅存摘要。
 - TOTP：Base32密钥、SHA1、6位、30秒，允许前后一个时间步；原子更新last_totp_step拒绝重放。AES-256-GCM密文格式v1:Base64(nonce12):Base64(ciphertext+tag16)，AAD为UTF8的singverse:totp:v1。加密主密钥文件是Base64编码32字节随机值，权限0600。
@@ -28,6 +28,8 @@ MFA使用RFC6238 TOTP：认证器扫描本地生成的二维码（或输入手�
 备份必须同时覆盖数据库与匹配的主密钥。先停止后端再备份卷/文件，或使用数据库一致性备份工具；不能直接复制正在写入的SQLite文件作为完整备份。恢复后核对权限、健康与登录，不执行down -v。
 
 ## 本机管理员恢复
+
+登录窗口的“忘记密码”可用一次性重置码只重置密码并保留 MFA。先停止主服务，沿用原有部署配置执行 `singverse --issue-password-reset`，按提示输入 RESET 后保存输出的重置码，再启动主服务。重置码有效15分钟，只能使用一次；再次生成撤销前一个码。登录窗口内提供本地源码 Docker、正式镜像 Docker 和原生进程对应的命令。重置成功后所有设备会话失效，使用新密码及原有 MFA 重新登录。该命令与下方紧急恢复一样要求交互 TTY 和部署锁。详细协议见[登录与密码重置](../contracts/auth-login.md)。
 
 遗忘密码且无可用认证器/恢复码时，仅能访问部署主机恢复。停止业务主服务，执行交互命令：
 

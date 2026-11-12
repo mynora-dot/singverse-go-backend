@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -113,10 +114,13 @@ func (s *Service) checkOrigin(c *gin.Context) error {
 	return nil
 }
 func cookie(c *gin.Context, name string) string { v, _ := c.Cookie(name); return v }
-func (s *Service) setCookie(c *gin.Context, name, value string) {
-	v := &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: s.policy.publicOrigin != "", SameSite: http.SameSiteLaxMode}
+func (s *Service) setCookie(c *gin.Context, name, value string, persistent ...bool) {
+	v := &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: s.policy.publicOrigin != "" || s.policy.scheme(c) == "https", SameSite: http.SameSiteLaxMode}
 	if value == "" {
 		v.MaxAge = -1
+	} else if name == SessionCookie && len(persistent) > 0 && persistent[0] {
+		v.MaxAge = int(persistentSessionTTL / 1000)
+		v.Expires = time.UnixMilli(s.now() + persistentSessionTTL).UTC()
 	}
 	http.SetCookie(c.Writer, v)
 }
@@ -142,7 +146,7 @@ func safe(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
 func public(path string) bool {
-	return path == "/api/v1/auth/csrf" || path == "/api/v1/auth/login" || path == "/api/v1/auth/mfa/verify"
+	return path == "/api/v1/auth/csrf" || path == "/api/v1/auth/login" || path == "/api/v1/auth/mfa/verify" || path == "/api/v1/auth/password/reset"
 }
 
 // RequireAdmin applies the Cookie/Origin/CSRF boundary. The application mounts
@@ -206,6 +210,8 @@ type credentials struct {
 	Code        string `json:"code"`
 	NewPassword string `json:"newPassword"`
 	NewUsername string `json:"newUsername"`
+	AutoLogin   bool   `json:"autoLogin"`
+	ResetToken  string `json:"resetToken"`
 }
 
 func (s *Service) run(c *gin.Context, fn func(*sqlx.Tx) (any, error)) {
@@ -231,7 +237,7 @@ func (s *Service) send(c *gin.Context, q dbtx, value issued) error {
 	if value.kind == "challenge" {
 		name = ChallengeCookie
 	}
-	s.setCookie(c, name, value.token)
+	s.setCookie(c, name, value.token, value.persistent)
 	return nil
 }
 
@@ -265,7 +271,7 @@ func (s *Service) Register(router *gin.Engine) {
 			return
 		}
 		s.run(c, func(tx *sqlx.Tx) (any, error) {
-			value, err := s.login(c.Request.Context(), tx, in.Username, in.Password, s.Source(c))
+			value, err := s.login(c.Request.Context(), tx, in.Username, in.Password, s.Source(c), in.AutoLogin)
 			if err != nil {
 				return nil, err
 			}
@@ -300,6 +306,19 @@ func (s *Service) Register(router *gin.Engine) {
 			s.run(c, func(tx *sqlx.Tx) (any, error) { return s.status(c.Request.Context(), tx) })
 		})
 	}
+	router.POST("/api/v1/auth/password/reset", func(c *gin.Context) {
+		var in credentials
+		if !httpx.Decode(c, &in, 16384) {
+			return
+		}
+		s.run(c, func(tx *sqlx.Tx) (any, error) {
+			err := s.resetPassword(c.Request.Context(), tx, in.Username, in.ResetToken, in.NewPassword, s.Source(c))
+			if err == nil {
+				s.clear(c)
+			}
+			return nil, err
+		})
+	})
 	router.POST("/api/v1/auth/logout", func(c *gin.Context) {
 		s.run(c, func(tx *sqlx.Tx) (any, error) {
 			err := s.revoke(c.Request.Context(), tx, cookie(c, SessionCookie))

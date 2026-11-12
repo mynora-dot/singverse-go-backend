@@ -16402,18 +16402,19 @@
           {
             "name": "state",
             "in": "query",
-            "description": "Empty for all songs. Category values match the row category; FAILED means a separation job for the current media failed; UNCONFIRMED means two source audio streams without confirmed roles.",
+            "description": "UNRECOGNIZED selects unprobed media and unconfirmed dual audio tracks, including prior failed or uncertain recognition. Confirmed role assignments and active recognition jobs are retained.",
             "schema": {
               "type": "string",
               "enum": [
                 "",
-                "UNPROBED",
-                "ELIGIBLE",
                 "READY",
                 "PROCESSING",
+                "UNPROBED",
+                "ELIGIBLE",
                 "INAPPLICABLE",
                 "FAILED",
-                "UNCONFIRMED"
+                "UNCONFIRMED",
+                "UNRECOGNIZED"
               ]
             }
           },
@@ -16512,6 +16513,21 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Omit for all batches; RECOGNIZE combines FAST and ANALYZE. Filter applies before pagination.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "",
+                "SEPARATE",
+                "FAST",
+                "ANALYZE",
+                "RECOGNIZE"
+              ]
+            }
           }
         ]
       }
@@ -16575,7 +16591,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Prepare SEPARATE generation or FAST/ANALYZE recognition using explicit songs or all filtered results. Recognition probes unknown streams, processes only unconfirmed dual audio tracks, and preserves confirmed marks. Jobs continue in the background; inconclusive results become REVIEW."
       }
     },
     "/api/v1/audio-processing/batches/{id}": {
@@ -16747,7 +16764,7 @@
     },
     "/api/v1/audio-processing/batches/{id}/retry": {
       "post": {
-        "summary": "Create a new preview of failed items",
+        "summary": "Create a new preview of failed or inconclusive items",
         "operationId": "audioProcessingPostBatchesIdRetry",
         "security": [
           {
@@ -16814,12 +16831,22 @@
                 "properties": {
                   "backend": {
                     "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "SEPARATE",
+                      "FAST",
+                      "ANALYZE"
+                    ],
+                    "description": "Optional. Defaults to the previous kind; only recognition batches can change mode between FAST and ANALYZE."
                   }
                 }
               }
             }
           }
-        }
+        },
+        "description": "Includes FAILED and REVIEW members, rechecking current media and role state. kind defaults to the previous batch kind; recognition can switch between FAST and ANALYZE. Changing between generation and recognition is rejected."
       }
     },
     "/api/v1/audio-processing/batches/{id}/items/{song}/cancel": {
@@ -24865,6 +24892,98 @@
           }
         }
       }
+    },
+    "/api/v1/auth/password/reset": {
+      "post": {
+        "operationId": "postAuthPasswordReset",
+        "summary": "Reset the administrator password using a host-issued one-use code.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success (empty body)"
+          },
+          "400": {
+            "description": "Invalid request or deployment origin",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication failed or expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin or CSRF rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Security setup state conflicts",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds until retry"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Fetch /auth/csrf again after any login phase or cookie transition."
+          }
+        ],
+        "description": "Requires the same-origin CSRF boundary and rate limits. The deployment-host CLI requires an interactive TTY and exclusive deployment lock; no HTTP endpoint issues codes. Replaces only the password, retains the current username, enrolled MFA and remaining MFA recovery codes, and revokes all sessions, challenges and reset codes atomically. Success clears cookies and does not log in automatically.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordReset"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -24946,6 +25065,11 @@
           "password": {
             "type": "string",
             "maxLength": 256
+          },
+          "autoLogin": {
+            "type": "boolean",
+            "default": false,
+            "description": "Keep the fully authenticated session for 30 days with a persistent HttpOnly cookie. MFA is still required when enabled; the choice is bound to the server-side challenge. When omitted/false, the existing 30-minute idle and 8-hour absolute limits apply."
           }
         }
       },
@@ -26411,20 +26535,20 @@
             "type": "number",
             "minimum": 0.8,
             "maximum": 1,
-            "default": 0.95
+            "default": 0.8
           },
           "minIntervalSeconds": {
             "type": "integer",
             "minimum": 0,
             "maximum": 300,
-            "default": 3,
+            "default": 1,
             "description": "Batch delay range in seconds after each song. Maximum must be >= minimum; omitted fields use defaults."
           },
           "maxIntervalSeconds": {
             "type": "integer",
             "minimum": 0,
             "maximum": 300,
-            "default": 8,
+            "default": 2,
             "description": "Batch delay range in seconds after each song. Maximum must be >= minimum; omitted fields use defaults."
           }
         },
@@ -30185,7 +30309,19 @@
             "type": "string"
           },
           "state": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "",
+              "READY",
+              "PROCESSING",
+              "UNPROBED",
+              "ELIGIBLE",
+              "INAPPLICABLE",
+              "FAILED",
+              "UNCONFIRMED",
+              "UNRECOGNIZED"
+            ],
+            "description": "UNRECOGNIZED selects unprobed media and unconfirmed dual audio tracks, including prior failed or uncertain recognition. Confirmed role assignments and active recognition jobs are retained."
           },
           "songId": {
             "type": "string"
@@ -30257,9 +30393,19 @@
               "flac"
             ],
             "default": "aac"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "SEPARATE",
+              "FAST",
+              "ANALYZE"
+            ],
+            "default": "SEPARATE",
+            "description": "SEPARATE generates accompaniment. FAST and ANALYZE retry role recognition on existing dual audio tracks, probing unknown streams first; confirmed roles are preserved. Recognition batches use the default legacy recipe; FAST ignores the requested backend."
           }
         },
-        "description": "Selection captures one published audio catalog generation. Media fingerprints are rechecked as each chunk is persisted; changed or deleted media becomes a failed member."
+        "description": "Selection captures one published audio catalog generation. Media fingerprints are rechecked as each chunk is persisted; changed or deleted media becomes a failed member. kind defaults to SEPARATE for existing clients; FAST and ANALYZE identify original/accompaniment roles without generating an accompaniment version."
       },
       "AudioProcessingBatch": {
         "type": "object",
@@ -30291,13 +30437,15 @@
             "type": "object",
             "additionalProperties": {
               "type": "integer"
-            }
+            },
+            "description": "Counts by member state, including REVIEW for completed recognition that could not safely save role assignments. Only SUCCEEDED means roles were confirmed or an accompaniment was generated."
           },
           "categories": {
             "type": "object",
             "additionalProperties": {
               "type": "integer"
-            }
+            },
+            "description": "Recognition preview categories are UNPROBED, UNCONFIRMED, READY, PROCESSING, and INAPPLICABLE. Only unknown streams and unconfirmed dual tracks are candidates; confirmed marks are preserved."
           },
           "items": {
             "type": "array",
@@ -30320,7 +30468,18 @@
                   "type": "string"
                 },
                 "state": {
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "PENDING",
+                    "PROBING",
+                    "PROCESSING",
+                    "SUCCEEDED",
+                    "REVIEW",
+                    "SKIPPED",
+                    "FAILED",
+                    "CANCELLED"
+                  ],
+                  "description": "REVIEW is terminal and means recognition finished without reliable original/accompaniment assignments. Manual confirmation or a new recognition batch is required."
                 },
                 "job_id": {
                   "type": [
@@ -30430,6 +30589,15 @@
           "preview": {
             "type": "boolean",
             "default": false
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "SEPARATE",
+              "FAST",
+              "ANALYZE"
+            ],
+            "description": "The persisted batch purpose. Existing batches migrate to SEPARATE."
           }
         },
         "required": [
@@ -30440,7 +30608,8 @@
           "categories",
           "prepared",
           "selectionTotal",
-          "error"
+          "error",
+          "kind"
         ]
       },
       "AudioProcessingSong": {
@@ -30681,9 +30850,9 @@
           "maxBytes": {
             "type": "integer",
             "format": "int64",
-            "minimum": 67108864,
+            "minimum": 0,
             "maximum": 1125899906842624,
-            "description": "Persistent Java-server song-cache budget in bytes. Initialized to 10 GiB unless configured otherwise. Active leases are protected; shrinking may remain over budget until they finish."
+            "description": "Go-server song-cache budget in bytes. Until settings are explicitly saved (revision=0), startup uses the configured budget (default 50 GiB), or 80% of available space on the cache filesystem if that budget will not fit. Automatic sizing may yield less than 64 MiB, including zero on a full disk; manual saves require 64 MiB to 1 PiB. Explicitly saved settings survive restarts. Active leases remain protected when shrinking."
           },
           "policy": {
             "type": "string",
@@ -34343,6 +34512,34 @@
             }
           }
         ]
+      },
+      "PasswordReset": {
+        "type": "object",
+        "required": [
+          "username",
+          "resetToken",
+          "newPassword"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "resetToken": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "writeOnly": true,
+            "description": "Single-use code issued interactively on the deployment host using --issue-password-reset. Valid for 15 minutes; only its SHA-256 digest is stored."
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 15,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
       }
     }
   }

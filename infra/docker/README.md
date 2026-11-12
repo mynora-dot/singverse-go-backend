@@ -2,6 +2,77 @@
 
 本仓库交付内嵌前端和两端 APK 的 Go 业务镜像。所有命令从本仓库根执行，详见 [README](../../README.md)。
 
+## 本地源码部署
+
+需要 Docker Desktop（或支持 BuildKit 命名上下文的 Docker Engine 和 Compose）。在本仓库根执行：
+
+```sh
+cp .env.local.example .env.local
+# 必填：SINGVERSE_FRONTEND_PROJECT 和 SINGVERSE_COMPUTE_PROJECT 的绝对路径。
+make docker-local-up
+make docker-local-status
+make docker-local-logs
+# 停止服务，保留本地数据：
+make docker-local-down
+```
+
+`docker-local-up` 从所选前端、Go 和计算节点源码构建两个本地镜像，等待服务健康后返回。前端的 admin、party、downloads 三个入口由 Go 同源托管，计算节点通过内部网络连接 Go，认证文件只在挂载目录共享。目录初始化服务以 root 创建并设置运行目录权限，业务服务均以 UID/GID 10001 运行。默认采用适合 ARM64/AMD64 的 base 计算运行库；模型权重由管理员按需下载或导入。
+
+- 管理入口：`http://127.0.0.1:18080/admin/`，初始账号 `admin/admin`。
+- 亲友入口：`http://127.0.0.1:18080/party/`。
+- 计算节点健康检查：`http://127.0.0.1:18090/health`。
+- Docker Desktop 项目：`singverse-go-app`；服务：`singverse-go-backend`、`singverse-compute`，以及退出码为 0 的一次性 `singverse-local-init`。
+
+运行数据位于本仓库的 `data/docker/`：`backend/` 为数据库和业务衍生文件，`secrets/` 为主密钥，`compute-auth/` 为计算节点认证，`compute-cache/` 为计算缓存和硬件设置，`models/` 为模型，`media/` 为只读挂载的媒体原件，`downloads/` 为下载文件。`data/` 与 `.env.local` 均被 Git 忽略，Docker 构建也排除这些文件。备份时一起备份数据库、主密钥和节点认证文件。
+
+本地部署使用独立的 `local.Dockerfile`。尚未准备安装包时，下载页面显示不可用。需要手机和电视下载时，显式选择两个 Android 仓库已生成的安装包目录，每个目录均须包含 APK、`release.json` 和 `SHA256SUMS`：
+
+```sh
+make docker-local-releases \
+  MOBILE_RELEASE_DIR=/absolute/path/to/mobile/build/mobile-release \
+  TV_RELEASE_DIR=/absolute/path/to/tv/app/build/tv-release
+# 在 .env.local 中将 SINGVERSE_HTTP_BIND 改为本机当前的局域网 IP。
+make docker-local-up
+# 在同一局域网的手机或电视中打开 http://<该局域网IP>:18080/downloads/
+```
+
+准备命令需要 Android SDK 的 `apksigner`、`aapt`，可通过环境变量 `APKSIGNER`、`AAPT` 指定。它复用正式构建的签名、包名、版本、最低系统、ABI 和摘要校验；任一包无效就失败，不改动现有镜像输入。校验后的副本写入 Git 忽略的 `.build/local-releases/`，清单明确注明“本地联调安装包”，再随本地镜像打包。原始 APK、签名与版本保持不变；临时签名不保证能覆盖设备上已有版本，正式分发仍须使用长期签名和下方的发行包构建流程。
+
+业务端口默认只监听 `127.0.0.1`；手机和电视不能访问该回环地址。局域网使用时绑定实际局域网 IP，并用同一 IP 打开下载页，二维码才会指向设备可达的入口。计算节点仍保持回环监听。机器切换网络后须同步更新 `.env.local` 的绑定 IP 并重建容器。
+
+### 手机和 TV 的局域网发现
+
+两端都查找 `_singverse._tcp` mDNS 服务。同一局域网、HTTP 可访问并不表示已经发布发现记录；Docker 端口映射只提供 HTTP 入口，不会代替宿主机发布 mDNS。不要把宿主机 IP 填入桥接容器的 `SINGVERSE_TV_DISCOVERY_ADDRESS`：该地址不属于容器网卡。
+
+macOS Docker Desktop 部署完成后，在宿主机另开终端运行：
+
+```sh
+make lan-discovery
+# 自定义容器名：make lan-discovery DISCOVERY_CONTAINER=<Go 容器名>
+```
+
+命令读取运行中 Go 容器实际发布的私有 IPv4 地址和 HTTP 端口，检查 `/api/v1/server-info` 后，使用系统 `dns-sd` 发布准确的地址；不会发布容器内部 IP、回环或通配绑定。手机与 TV 重新查找即可。命令需要保持运行，Ctrl-C 撤销广播；Mac 重启后重新运行。服务不可用时撤销广播，恢复后重新发布。不安装开机服务，不修改容器或数据。
+
+Linux NAS 的桥接部署在宿主机用 Avahi 发布同一类型与实际入口端口，例如 `avahi-publish-service "SingVerse NAS" _singverse._tcp 18080 api=1 scheme=http`；保持进程运行，或使用宿主机已有的 Avahi 服务配置管理。原生 Go 部署可显式设置 `SINGVERSE_TV_DISCOVERY_ADDRESS=<本机内网 IP>` 和 `SINGVERSE_TV_DISCOVERY_PORT=<实际 HTTP 入口端口>`。发现记录只提供连接候选，客户端仍会验证服务身份并要求登录。
+
+本地覆盖保持项目和服务名，现有正式命名卷仍被保留；切换部署方式前确认要使用的数据位置。
+
+镜像仓库直连不可用时，可在 `.env.local` 设置 `LOCAL_NODE_IMAGE`、`LOCAL_GO_IMAGE`、`LOCAL_NGINX_IMAGE` 和 `LOCAL_PYTHON_IMAGE` 指向可用镜像地址，保留示例中的固定 SHA-256 摘要；可用 `LOCAL_GOPROXY` 指定 Go 模块代理。所有机器相关配置只保存在未跟踪的 `.env.local`。
+
+## Mac 原生计算端
+
+前后端继续使用 Docker，Mac 上的计算节点由所选 compute 仓库的 `scripts/macos-compute.py` 注册到用户 launchd，使用原生 ARM64 FFmpeg 和 VideoToolbox。先在该 compute 仓库准备 `.venv` 与固定媒体工具（`make compute-setup PYTHON=python3.12 transcode-tools`），再在本仓库的 `.env.local` 中填写 `SINGVERSE_MACOS_CALLBACK_ORIGIN`，例如 `http://192.168.1.102:18080`；地址必须能从 Mac 直接访问当前发布的 Go 端口。
+
+```sh
+make docker-macos-up
+```
+
+该命令重新构建前后端镜像，停止原 Docker 计算容器，复用已有节点认证文件并重启 Mac 原生节点，再重新部署 Go。Go 通过 `host.docker.internal:18090` 访问节点；媒体任务回源使用所填的 Mac 可达地址。Mac 节点仅监听 `127.0.0.1:18090`，登录后由 launchd 自动启动。原 Docker 计算容器和挂载数据保留。
+
+原生节点的数据、日志、认证和启动配置位于所选 compute 仓库的 `data/macos-compute/`，由该仓库的 `/data` 规则忽略。可在 compute 仓库执行 `.venv/bin/python scripts/macos-compute.py status` 检查状态。后续使用 `make docker-macos-up` 重新部署此组合；`make docker-local-up` 使用 Docker 计算端，两种计算端占用相同端口，切换前先停止当前节点。
+
+## 正式发行包部署
+
 ```sh
 cp .env.example .env
 # 按部署需要修改占位配置；已有 .env 不覆盖。

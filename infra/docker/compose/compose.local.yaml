@@ -1,0 +1,62 @@
+# Apply after compose.yaml. Source checkouts must be selected explicitly.
+services:
+  singverse-local-init:
+    image: singverse:local
+    user: '0:0'
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        for dir in backend secrets downloads compute-auth compute-cache models; do
+          mkdir -p "/local/$$dir"
+          chown 10001:10001 "/local/$$dir"
+          chmod 750 "/local/$$dir"
+        done
+        mkdir -p /local/media
+    volumes:
+      - ./data/docker:/local
+    restart: 'no'
+  singverse-go-backend:
+    image: singverse:local
+    build:
+      context: .
+      dockerfile: infra/docker/build/local.Dockerfile
+      target: singverse-local
+      additional_contexts:
+        frontend-source: '${SINGVERSE_FRONTEND_PROJECT:?Set the absolute frontend checkout in .env.local}'
+        client-releases: ./.build/local-releases
+      args:
+        NODE_IMAGE: '${LOCAL_NODE_IMAGE:-node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d}'
+        GO_IMAGE: '${LOCAL_GO_IMAGE:-golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea}'
+        NGINX_IMAGE: '${LOCAL_NGINX_IMAGE:-nginx:stable-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951}'
+        GOPROXY: '${LOCAL_GOPROXY:-https://proxy.golang.org,direct}'
+        SOURCE_REVISION: '${SINGVERSE_SOURCE_REVISION:-local}'
+    environment:
+      COMPUTE_NODE_URL: http://singverse-compute:8090
+      SINGVERSE_CLIENT_RELEASE_DIRECTORY: /opt/singverse/releases
+    depends_on:
+      singverse-local-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./data/docker/backend:/data
+      - ./data/docker/secrets:/secrets
+      - ./data/docker/compute-auth:/run/singverse-compute:ro
+      - ./data/docker/media:/media:ro
+      - ./data/docker/downloads:/downloads
+  singverse-compute:
+    image: 'singverse-compute:local-${COMPUTE_RUNTIME:-base}'
+    build:
+      context: '${SINGVERSE_COMPUTE_PROJECT:?Set the absolute compute checkout in .env.local}'
+      dockerfile: infra/docker/build/compute.Dockerfile
+      target: '${COMPUTE_RUNTIME:-base}'
+      args:
+        PYTHON_IMAGE: '${LOCAL_PYTHON_IMAGE:-python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337}'
+        SOURCE_REVISION: '${COMPUTE_SOURCE_REVISION:-local}'
+    depends_on:
+      singverse-local-init:
+        condition: service_completed_successfully
+    ports:
+      - '${COMPUTE_HTTP_BIND:-127.0.0.1}:${COMPUTE_HTTP_PORT:-18090}:8090'
+    volumes:
+      - ./data/docker/compute-auth:/run/singverse-compute
+      - ./data/docker/compute-cache:/var/cache/singverse-transcode
+      - ./data/docker/models:/var/lib/singverse-models

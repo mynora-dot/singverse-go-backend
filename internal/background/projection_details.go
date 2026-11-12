@@ -58,6 +58,11 @@ func (s *Service) applyTaskDetails(ctx context.Context, tx store.DBTX, kind stri
 		}
 	case "AUDIO_BATCH":
 		label = "批量伴奏生成"
+		if text(source, "kind") == "FAST" {
+			label = "批量快速识别原唱与伴奏"
+		} else if text(source, "kind") == "ANALYZE" {
+			label = "批量深度识别原唱与伴奏"
+		}
 		projection.applyAudioBatchDetails(source)
 	case "AUDIO_JOB", "TRANSCODE":
 		label = projection.applyExecutionDetails(kind, source)
@@ -90,6 +95,7 @@ func (p *taskProjection) applyScanDetails(source doc) {
 }
 
 func (p *taskProjection) applyAudioBatchDetails(source doc) {
+	p.diagnostics["audioBatchKind"] = text(source, "kind")
 	p.row["total"] = max(number(source, "selection_total"), number(p.row, "total"))
 	p.row["progress_unit"] = "SONGS"
 	p.statistics["prepared"] = number(source, "prepared_count")

@@ -1,1 +1,1 @@
-INSERT INTO audio_batch(id,state,backend,created_at,updated_at,selection_total,prepared_count,preparation_error) VALUES(@{id},'PREPARING',@{backend},@{now},@{now},@{total},0,'')
+INSERT INTO audio_batch(id,state,kind,backend,created_at,updated_at,selection_total,prepared_count,preparation_error) VALUES(@{id},'PREPARING',@{kind},@{backend},@{now},@{now},@{total},0,'')

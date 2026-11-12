@@ -26,7 +26,7 @@ func fixture(t *testing.T, platform string) (*Service, Manifest) {
 	h := sha256.Sum256(data)
 	sdk := 24
 	if platform == "tv" {
-		sdk = 23
+		sdk = 21
 	}
 	m := Manifest{SchemaVersion: 1, Platform: platform, VersionCode: 1000, VersionName: "0.1.0", PackageName: "com.mynora.singverse." + platform, MinSDK: sdk, ABIs: []string{"arm64-v8a"}, Size: int64(len(data)), SHA256: hex.EncodeToString(h[:]), CertificateSHA256: strings.Repeat("a", 64), Notes: "release"}
 	raw, _ := json.Marshal(m)

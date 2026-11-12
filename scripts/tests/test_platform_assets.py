@@ -144,7 +144,7 @@ class PlatformAssetsTests(unittest.TestCase):
                 else:
                     apk = ("signed fixture " + name).encode()
                     metadata = dict(schemaVersion=1, platform=name, packageName="com.mynora.singverse." + name,
-                                    versionName="0.1.0", versionCode=1000, minSdk=24 if name == "mobile" else 23,
+                                    versionName="0.1.0", versionCode=1000, minSdk=24 if name == "mobile" else 21,
                                     abis=["universal"], size=len(apk), sha256=hashlib.sha256(apk).hexdigest(),
                                     certificateSha256="a" * 64, notes="isolated test")
                     manifests[name] = metadata

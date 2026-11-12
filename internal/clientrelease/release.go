@@ -102,7 +102,7 @@ func (s *Service) Current(platform string) (Release, error) {
 	}
 	expectedSDK := 24
 	if platform == "tv" {
-		expectedSDK = 23
+		expectedSDK = 21
 	}
 	expectedPackage := "com.mynora.singverse." + platform
 	if m.SchemaVersion != 1 || m.Platform != platform || m.VersionCode < 1 || m.VersionCode > 2100000000 ||

@@ -42,10 +42,14 @@ func main() {
 
 func run(log *slog.Logger) error {
 	reset := flag.Bool("reset-admin", false, "recover administrator on the deployment host")
+	issueReset := flag.Bool("issue-password-reset", false, "issue a one-use password reset code on the deployment host")
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	if *reset && *issueReset {
+		return errors.New("choose either administrator recovery or a password reset code")
 	}
 	if *showVersion {
 		fmt.Println(version)
@@ -64,6 +68,9 @@ func run(log *slog.Logger) error {
 	defer db.Close()
 	if *reset {
 		return recoverAdministrator(ctx, db)
+	}
+	if *issueReset {
+		return issuePasswordReset(ctx, db)
 	}
 	application, err := app.New(cfg, db.DB, log)
 	if err != nil {
@@ -133,5 +140,24 @@ func recoverAdministrator(ctx context.Context, db *store.Database) error {
 		return errors.New("administrator recovery failed; check password requirements and database")
 	}
 	fmt.Fprintln(os.Stderr, "管理员恢复完成，所有会话已撤销。")
+	return nil
+}
+
+func issuePasswordReset(ctx context.Context, db *store.Database) error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return errors.New("password reset code requires an interactive TTY")
+	}
+	fmt.Fprint(os.Stderr, "输入 RESET 确认生成一次性密码重置码（不更改密码或二次验证）：")
+	confirmation, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil || strings.TrimSpace(confirmation) != "RESET" {
+		return errors.New("password reset code cancelled")
+	}
+	token, expires, err := auth.IssuePasswordReset(ctx, db.DB)
+	if err != nil {
+		return errors.New("cannot issue password reset code; check database")
+	}
+	fmt.Fprintln(os.Stdout, "一次性密码重置码：", token)
+	fmt.Fprintln(os.Stdout, "有效期至：", expires.Format(time.RFC3339))
+	fmt.Fprintln(os.Stdout, "重新启动业务服务后，在登录窗口的“忘记密码”中输入此码。此码仅可使用一次。")
 	return nil
 }

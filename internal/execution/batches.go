@@ -57,6 +57,9 @@ func matchesAudio(row, filter map[string]any) bool {
 		return false
 	}
 	state := str(filter, "state")
+	if state == "UNRECOGNIZED" {
+		return oneOf(recognitionCategory(status), "UNPROBED", "UNCONFIRMED")
+	}
 	if state == "FAILED" {
 		for _, item := range array(status["jobs"]) {
 			v := obj(item)
@@ -192,6 +195,7 @@ func (s *Service) requireBatch(ctx context.Context, id string) (map[string]any, 
 }
 func (s *Service) batchView(ctx context.Context, row map[string]any) (map[string]any, error) {
 	v := storedRecipe(row).view()
+	v["kind"] = batchKind(row)
 	v["id"], v["state"], v["backend"], v["createdAt"] = str(row, "id"), str(row, "state"), str(row, "backend"), integer(row["created_at"])
 	v["total"], v["prepared"], v["selectionTotal"], v["error"] = integer(row["selection_total"]), integer(row["prepared_count"]), integer(row["selection_total"]), str(row, "preparation_error")
 	counts, categories := map[string]any{}, map[string]any{}
@@ -235,15 +239,18 @@ func (s *Service) batchDetail(ctx context.Context, id string, page, size int) (m
 	v["items"], v["page"], v["size"] = items, page, size
 	return v, nil
 }
-func (s *Service) batches(ctx context.Context, page, size int) (map[string]any, error) {
+func (s *Service) batches(ctx context.Context, page, size int, kind string) (map[string]any, error) {
 	if page < 0 || page > 1000000 || size < 1 || size > 100 {
 		return nil, fail(400, "分页参数无效")
 	}
-	count, err := s.one(ctx, s.db, "batch-batch-count", nil)
+	if !oneOf(kind, "", "SEPARATE", "FAST", "ANALYZE", "RECOGNIZE") {
+		return nil, fail(400, "批次类型无效")
+	}
+	count, err := s.one(ctx, s.db, "batch-batch-count", map[string]any{"kind": kind})
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.maps(ctx, s.db, "batch-batches", map[string]any{"limit": size, "offset": int64(page) * int64(size)})
+	rows, err := s.maps(ctx, s.db, "batch-batches", map[string]any{"kind": kind, "limit": size, "offset": int64(page) * int64(size)})
 	if err != nil {
 		return nil, err
 	}
@@ -262,6 +269,10 @@ func (s *Service) batches(ctx context.Context, page, size int) (map[string]any, 
 	return map[string]any{"totalElements": total, "items": items}, nil
 }
 func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[string]any, error) {
+	kind := batchKind(input)
+	if !oneOf(kind, "SEPARATE", "FAST", "ANALYZE") {
+		return nil, fail(400, "批次类型无效")
+	}
 	backend := str(input, "backend")
 	if backend == "auto" {
 		backend = ""
@@ -272,6 +283,12 @@ func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[s
 	}
 	if err = spec.validateBackend(backend); err != nil {
 		return nil, err
+	}
+	if recognitionKind(kind) && !spec.legacy() {
+		return nil, fail(400, "识别批次不能使用伴奏生成方案")
+	}
+	if kind == "FAST" {
+		backend = ""
 	}
 	catalog, err := s.audioCatalog(ctx)
 	if err != nil {
@@ -317,7 +334,7 @@ func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[s
 	}
 	id := uuid()
 	err = s.transaction(ctx, "AUDIO_BATCH", id, func(tx *sqlx.Tx) error {
-		if _, e := s.exec(ctx, tx, "batch-insert-batch", map[string]any{"id": id, "backend": backend, "now": now(), "total": len(selected)}); e != nil {
+		if _, e := s.exec(ctx, tx, "batch-insert-batch", map[string]any{"id": id, "kind": kind, "backend": backend, "now": now(), "total": len(selected)}); e != nil {
 			return e
 		}
 		_, e := s.exec(ctx, tx, "batch-set-recipe", map[string]any{"id": id, "recipe": encoded(spec.view())})
@@ -328,10 +345,14 @@ func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[s
 		return nil, err
 	}
 	s.wg.Add(1)
-	go func() { defer s.wg.Done(); defer s.preparing.Store(false); s.prepareBatch(s.ctx, id, selected, spec) }()
+	go func() {
+		defer s.wg.Done()
+		defer s.preparing.Store(false)
+		s.prepareBatch(s.ctx, id, selected, spec, kind)
+	}()
 	return s.batchDetail(ctx, id, 0, 50)
 }
-func (s *Service) prepareBatch(ctx context.Context, id string, selected []map[string]any, spec audioRecipe) {
+func (s *Service) prepareBatch(ctx context.Context, id string, selected []map[string]any, spec audioRecipe, kind string) {
 	for offset := 0; offset < len(selected); offset += 200 {
 		if ctx.Err() != nil {
 			return
@@ -350,8 +371,14 @@ func (s *Service) prepareBatch(ctx context.Context, id string, selected []map[st
 					state, detail = "FAILED", "歌曲状态读取失败"
 				} else {
 					category = audioCategory(status, spec)
-					if oneOf(category, "UNPROBED", "ELIGIBLE") {
+					if recognitionKind(kind) {
+						category = recognitionCategory(status)
+					}
+					if category == "UNPROBED" || (recognitionKind(kind) && category == "UNCONFIRMED") || (!recognitionKind(kind) && category == "ELIGIBLE") {
 						state = "PENDING"
+					}
+					if recognitionKind(kind) && state == "SKIPPED" {
+						detail = map[string]string{"READY": "已有确认标记，予以保留", "PROCESSING": "已有其他识别任务", "INAPPLICABLE": "仅双音轨支持自动区分原唱与伴奏"}[category]
 					}
 				}
 			}
@@ -410,16 +437,26 @@ func (s *Service) startBatch(ctx context.Context, id string) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
-	node, err := s.call(ctx, c, "/internal/v1/audio-roles/models", "GET", nil)
-	if err != nil {
-		return nil, err
-	}
-	spec := storedRecipe(row)
-	if !spec.ready(node, str(row, "backend")) {
-		return nil, fail(422, "请先在性能节点配置中安装模型并完成试跑")
-	}
-	if spec.legacy() && node["resourceReady"] == false {
-		return nil, fail(422, "节点当前内存或磁盘空间不足")
+	if batchKind(row) == "FAST" {
+		node, e := s.call(ctx, c, "/internal/v1/status", "GET", nil)
+		if e != nil {
+			return nil, e
+		}
+		if !contains(node["capabilities"], "audio-role-fast") {
+			return nil, fail(422, "请先在计算节点准备快速音轨识别环境")
+		}
+	} else {
+		node, e := s.call(ctx, c, "/internal/v1/audio-roles/models", "GET", nil)
+		if e != nil {
+			return nil, e
+		}
+		spec := storedRecipe(row)
+		if !spec.ready(node, str(row, "backend")) {
+			return nil, fail(422, "请先在性能节点配置中安装模型并完成试跑")
+		}
+		if spec.legacy() && node["resourceReady"] == false {
+			return nil, fail(422, "节点当前内存或磁盘空间不足")
+		}
 	}
 	err = s.transaction(ctx, "AUDIO_BATCH", id, func(tx *sqlx.Tx) error {
 		for _, name := range []string{"batch-start", "batch-finish"} {
@@ -449,13 +486,19 @@ func (s *Service) updateBatchItem(ctx context.Context, item map[string]any, stat
 }
 func (s *Service) cancelBatchMember(ctx context.Context, item map[string]any) error {
 	job := str(item, "job_id")
-	if str(item, "state") == "PROCESSING" && job != "" {
+	if oneOf(str(item, "state"), "PROBING", "PROCESSING") && job != "" {
 		execution, err := s.optional(ctx, s.db, "audio-job", map[string]any{"id": job})
 		if err != nil {
 			return err
 		}
 		if str(execution, "state") == "SUCCEEDED" {
-			return s.updateBatchItem(ctx, item, "SUCCEEDED", job, "")
+			if str(item, "state") == "PROCESSING" {
+				if recognitionKind(str(execution, "kind")) {
+					return s.advanceRecognitionMember(ctx, item)
+				}
+				return s.updateBatchItem(ctx, item, "SUCCEEDED", job, "")
+			}
+			return s.updateBatchItem(ctx, item, "CANCELLED", job, "")
 		}
 		if err = s.CancelAudio(ctx, str(item, "song_id"), job); err != nil {
 			return err
@@ -516,7 +559,7 @@ func (s *Service) cancelBatchItem(ctx context.Context, id, song string) error {
 		return err
 	})
 }
-func (s *Service) retryBatch(ctx context.Context, id, backend string) (map[string]any, error) {
+func (s *Service) retryBatch(ctx context.Context, id, backend, kind string) (map[string]any, error) {
 	row, err := s.requireBatch(ctx, id)
 	if err != nil {
 		return nil, err
@@ -526,6 +569,14 @@ func (s *Service) retryBatch(ctx context.Context, id, backend string) (map[strin
 		return nil, err
 	}
 	input := storedRecipe(row).view()
+	previous := batchKind(row)
+	if kind == "" {
+		kind = previous
+	}
+	if kind != previous && !(recognitionKind(kind) && recognitionKind(previous)) {
+		return nil, fail(400, "不能更改批次用途")
+	}
+	input["kind"] = kind
 	ids := []any{}
 	for _, item := range failed {
 		ids = append(ids, str(item, "song_id"))
@@ -572,16 +623,28 @@ func (s *Service) tickBatches(ctx context.Context) {
 			}
 			phase := str(execution, "state")
 			if oneOf(phase, "FAILED", "CANCELLED") {
-				_ = s.updateBatchItem(ctx, item, phase, job, str(execution, "error"))
+				detail := str(execution, "error")
+				if recognitionKind(batchKind(item)) {
+					detail = recognitionFailure(execution)
+				}
+				_ = s.updateBatchItem(ctx, item, phase, job, detail)
 				continue
 			}
 			if phase != "SUCCEEDED" {
 				continue
 			}
 			if state == "PROCESSING" {
-				_ = s.updateBatchItem(ctx, item, "SUCCEEDED", job, "")
+				if recognitionKind(batchKind(item)) {
+					_ = s.advanceRecognitionMember(ctx, item)
+				} else {
+					_ = s.updateBatchItem(ctx, item, "SUCCEEDED", job, "")
+				}
 				continue
 			}
+		}
+		if recognitionKind(batchKind(item)) {
+			_ = s.advanceRecognitionMember(ctx, item)
+			continue
 		}
 		status, e := s.audioStatus(ctx, song)
 		if e != nil {

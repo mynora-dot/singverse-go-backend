@@ -115,11 +115,9 @@ func New(db *sqlx.DB, dialect string, cfg config.Config, cipher Cipher, libraryS
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{db: db, dialect: dialect, library: librarySvc, compute: computeSvc, cfg: cfg, log: log, ctx: ctx, cancel: cancel, active: map[string]context.CancelFunc{}, preloads: map[string]context.CancelFunc{}, cacheReaders: map[string]int{}, cacheReservations: map[string]int64{}, cacheCaptures: map[string]bool{}, prefetchSongs: map[string]string{}, originalFlights: map[string]chan struct{}{}}
-	if cfg.SongCacheBytes > 0 {
-		if _, err := s.exec(ctx, db, "cache-initialize", map[string]any{"bytes": cfg.SongCacheBytes}); err != nil {
-			cancel()
-			return nil, err
-		}
+	if err := s.initializeCacheBudget(ctx, availableBytes); err != nil {
+		cancel()
+		return nil, err
 	}
 	// Pending preparation cannot safely resume an in-memory selection after restart.
 	if _, err := s.exec(ctx, db, "batch-recover-preparing", map[string]any{"now": now()}); err != nil {
@@ -131,6 +129,10 @@ func New(db *sqlx.DB, dialect string, cfg config.Config, cipher Cipher, libraryS
 	s.prefetchFetch = map[string]context.CancelFunc{}
 	s.discoveryRound = uuid()
 	if err := s.bootstrapFormalAudio(ctx); err != nil {
+		cancel()
+		return nil, err
+	}
+	if err := s.recoverRecognitionResults(ctx); err != nil {
 		cancel()
 		return nil, err
 	}

@@ -57,10 +57,10 @@ func (s *Service) putSettings(c *gin.Context) {
 		return
 	}
 	if in.MinIntervalSeconds == nil {
-		in.MinIntervalSeconds = ptr(3)
+		in.MinIntervalSeconds = ptr(1)
 	}
 	if in.MaxIntervalSeconds == nil {
-		in.MaxIntervalSeconds = ptr(8)
+		in.MaxIntervalSeconds = ptr(2)
 	}
 	if *in.MinIntervalSeconds < 0 || *in.MaxIntervalSeconds > 300 || *in.MaxIntervalSeconds < *in.MinIntervalSeconds {
 		s.fail(c, bad("批量间隔需要在 0～300 秒之间，最大值不能小于最小值"))

@@ -89,7 +89,26 @@ def main():
     require(independent['services']['singverse-go-backend']['image'].endswith(':1.2.3'), 'App version lost')
     require(independent['services']['singverse-compute']['image'].endswith(':4.5.6-base'), 'Compute must version independently')
     require((ROOT / '.dockerignore').read_bytes() == (ROOT / 'infra/docker/build/.dockerignore').read_bytes(), 'Root Docker ignore must match infra source')
-    print(f'通过：{count + 2} 组源码/镜像/硬件/独立节点配置；未启动容器。')
+    local = render(['compose.yaml', 'compose.local.yaml'], COMPOSE_PROFILES='compute',
+                   SINGVERSE_FRONTEND_PROJECT=str(ROOT), SINGVERSE_COMPUTE_PROJECT=str(ROOT))
+    require(local['name'] == 'singverse-go-app', 'Local deployment project identity changed')
+    services = local['services']
+    require(set(services) == {'singverse-go-backend', 'singverse-compute', 'singverse-local-init'}, 'Local services missing')
+    require(services['singverse-go-backend']['image'] == 'singverse:local', 'Local business image changed')
+    require(services['singverse-go-backend']['build']['additional_contexts']['frontend-source'] == str(ROOT), 'Explicit frontend context lost')
+    require(services['singverse-compute']['build']['context'] == str(ROOT), 'Explicit compute context lost')
+    require(services['singverse-go-backend']['environment']['COMPUTE_NODE_URL'] == 'http://singverse-compute:8090', 'Local compute connection lost')
+    for name, service in services.items():
+        for mount in service['volumes']:
+            require(mount['type'] == 'bind' and Path(mount['source']).is_relative_to(ROOT / 'data/docker'), 'Local mounts must stay in ignored data/docker')
+        if name != 'singverse-local-init':
+            require(service['depends_on']['singverse-local-init']['condition'] == 'service_completed_successfully', 'Local directory permissions must be initialized')
+        for port in service.get('ports', []):
+            require(port['host_ip'] == '127.0.0.1', 'Local ports must default to loopback')
+    mounts = {v['target']: v for v in services['singverse-go-backend']['volumes']}
+    require(mounts['/media']['read_only'] and mounts['/run/singverse-compute']['read_only'], 'Local read-only protection lost')
+    require('/data' in (ROOT / '.gitignore').read_text().splitlines(), 'Local bind data must be ignored by Git')
+    print(f'通过：{count + 3} 组源码/镜像/硬件/独立节点/本地部署配置；未启动容器。')
 
 
 if __name__ == '__main__':
