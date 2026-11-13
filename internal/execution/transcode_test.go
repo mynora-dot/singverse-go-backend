@@ -40,7 +40,7 @@ func testRealtimeHLSCaptureReuseOfflineIntegrityAndOwners(t *testing.T, fixture 
 	remote := map[string]map[string]any{}
 	var complete atomic.Bool
 	var ack, sourceReads atomic.Int64
-	files := map[string][]byte{"master.m3u8": []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nstream_0.m3u8\n"), "stream_0.m3u8": []byte("#EXTM3U\n#EXTINF:4,\nstream_0_00001.ts\n#EXT-X-ENDLIST\n"), "stream_0_00001.ts": bytes.Repeat([]byte{0x47, 0, 0, 1}, 256), "output.mp4": bytes.Repeat([]byte("verified-mp4"), 256)}
+	files := map[string][]byte{"master.m3u8": []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nstream_0.m3u8\n"), "stream_0.m3u8": []byte("#EXTM3U\n#EXTINF:120.25,\nstream_0_00001.ts\n#EXT-X-ENDLIST\n"), "stream_0_00001.ts": bytes.Repeat([]byte{0x47, 0, 0, 1}, 256), "output.mp4": bytes.Repeat([]byte("verified-mp4"), 256)}
 	manifest := map[string]any{}
 	for name, data := range files {
 		if name == "output.mp4" {

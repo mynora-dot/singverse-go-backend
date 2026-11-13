@@ -120,6 +120,14 @@ func (s *Service) ServeCachedOriginal(ctx context.Context, w http.ResponseWriter
 		if index != start/originalBlockBytes {
 			data, err = s.originalBlock(ctx, entry, index, size, r, fetch, check, &budget)
 			if err != nil {
+				reason := safeFailure(err)
+				if public, ok := err.(interface{ StatusCode() int }); ok {
+					reason = fmt.Sprintf("HTTP %d: %s", public.StatusCode(), err.Error())
+				}
+				if errors.Is(err, context.Canceled) {
+					reason = "reader cancelled"
+				}
+				s.log.Warn("original media block interrupted", "block", index, "reason", reason)
 				return true, err
 			}
 		}

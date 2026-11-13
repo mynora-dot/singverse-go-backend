@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,7 +71,11 @@ func (s *Service) validCache(row map[string]any) bool {
 			return false
 		}
 	}
-	return true
+	return validatePlaylists(folder, artifacts, cacheDuration(decoded(row["execution_json"]))) == nil
+}
+
+func cacheDuration(execution map[string]any) float64 {
+	return max(0, number(obj(execution["media"])["duration"])-number(execution["offset"]))
 }
 func cacheSnapshot(row map[string]any, hit bool) map[string]any {
 	v := decoded(row["execution_json"])
@@ -110,13 +115,26 @@ func (s *Service) acquireCache(ctx context.Context, key, session string) (map[st
 		return nil, err
 	}
 	if !s.validCache(row) {
-		return nil, nil
+		return nil, s.detachInvalidCache(ctx, row)
 	}
 	err = s.transaction(ctx, "", "", func(tx *sqlx.Tx) error { return s.bindCache(ctx, tx, session, row, true) })
 	if err != nil {
 		return nil, err
 	}
 	return cacheSnapshot(row, true), nil
+}
+
+// Free the lookup key for a replacement without deleting artifacts or leases.
+// Existing entries remain visible to the normal cache cleanup lifecycle.
+func (s *Service) detachInvalidCache(ctx context.Context, row map[string]any) error {
+	if row == nil {
+		return nil
+	}
+	_, err := s.exec(ctx, s.db, "cache-detach-invalid", map[string]any{
+		"id": str(row, "id"), "key": str(row, "cache_key"),
+		"replacement": hash("invalid:" + str(row, "id") + ":" + str(row, "cache_key")),
+	})
+	return err
 }
 func (s *Service) renewCache(ctx context.Context, session string) (map[string]any, error) {
 	s.cacheMu.Lock()
@@ -303,7 +321,7 @@ func (s *Service) captureCache(ctx context.Context, row map[string]any, key stri
 			return nil, err
 		}
 	}
-	if err = validatePlaylists(staging, artifacts); err != nil {
+	if err = validatePlaylists(staging, artifacts, cacheDuration(execution)); err != nil {
 		return nil, err
 	}
 	s.cacheMu.Lock()
@@ -322,7 +340,9 @@ func (s *Service) captureCache(ctx context.Context, row map[string]any, key stri
 		return cacheSnapshot(prior, false), nil
 	}
 	if prior != nil {
-		return nil, fail(409, "旧缓存需要清理，继续使用当前播放资源")
+		if err = s.detachInvalidCache(ctx, prior); err != nil {
+			return nil, err
+		}
 	}
 	folder, _ := s.cacheFolder(id)
 	if err = os.Rename(staging, folder); err != nil {
@@ -414,8 +434,9 @@ func (s *Service) downloadCacheFile(ctx context.Context, c *compute.Connection, 
 
 var playlistURI = regexp.MustCompile(`URI="([^"]+)"`)
 
-func validatePlaylists(staging string, artifacts map[string]any) error {
+func validatePlaylists(staging string, artifacts map[string]any, expectedDuration float64) error {
 	playlists, segments := 0, false
+	longest := 0.0
 	for name := range artifacts {
 		if strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".m4s") {
 			segments = true
@@ -437,11 +458,25 @@ func validatePlaylists(staging string, artifacts map[string]any) error {
 			return fail(502, "缓存播放列表尚未完整")
 		}
 		refs := []string{}
+		duration := 0.0
 		for _, line := range strings.Split(content, "\n") {
 			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "#EXTINF:") {
+				seconds, err := strconv.ParseFloat(strings.SplitN(strings.TrimPrefix(line, "#EXTINF:"), ",", 2)[0], 64)
+				if err != nil || seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+					return fail(502, "缓存分片时长无效")
+				}
+				duration += seconds
+			}
 			if line != "" && !strings.HasPrefix(line, "#") {
 				refs = append(refs, line)
 			}
+		}
+		if name != "master.m3u8" {
+			if duration <= 0 {
+				return fail(502, "缓存播放列表缺少有效时长")
+			}
+			longest = max(longest, duration)
 		}
 		for _, match := range playlistURI.FindAllStringSubmatch(content, -1) {
 			refs = append(refs, match[1])
@@ -457,6 +492,11 @@ func validatePlaylists(staging string, artifacts map[string]any) error {
 	}
 	if playlists < 2 || !segments {
 		return fail(502, "缓存音视频分片不完整")
+	}
+	// ENDLIST also appears when FFmpeg accepts an early input EOF. Compare the
+	// actual timeline with the probed source, allowing timestamp/codec rounding.
+	if expectedDuration > 0 && longest+max(2, expectedDuration*.02) < expectedDuration {
+		return fail(502, "缓存播放时长不完整，请重新生成播放资源")
 	}
 	return nil
 }

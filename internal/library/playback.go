@@ -259,6 +259,7 @@ func (s *Service) remoteOriginal(ctx context.Context, w http.ResponseWriter, r *
 		return &problem{status: 502, detail: "WebDAV 媒体读取失败或发生重定向"}
 	}
 	if response.StatusCode != 200 && response.StatusCode != 206 {
+		s.log.Warn("WebDAV media read rejected", "status", response.StatusCode)
 		if response.StatusCode >= 300 && response.StatusCode < 400 {
 			return fail("WebDAV 媒体请求发生重定向，请使用支持直接读取的 WebDAV 地址")
 		}
