@@ -118,12 +118,8 @@ test -z "$unexpected"
 
 
 def participant_audio_authorization(admin):
-    grant = admin.call("POST", "/api/v1/device-authorizations",
-                       {"name": "隔离音轨授权电视"}).json()
-    admin.call("POST", "/api/v1/admin/device-authorizations/" + grant["id"] + "/approve",
-               {"code": grant["code"]}, csrf=True)
-    device = admin.call("POST", "/api/v1/device-authorizations/" + grant["id"] + "/poll",
-                        {"pollSecret": grant["pollSecret"]}).json()
+    device = admin.call("POST", "/api/v1/auth/tv-session",
+                        {"name": "隔离音轨登录电视"}, csrf=True).json()
     headers = {"Authorization": "Bearer " + device["token"]}
     session = admin.call("POST", "/api/v1/tv/sessions", headers=headers).json()
     invitation = admin.call("POST", "/api/v1/tv/sessions/" + session["id"] + "/invitations",

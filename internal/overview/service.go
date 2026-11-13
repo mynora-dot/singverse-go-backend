@@ -39,11 +39,6 @@ type CatalogReader interface {
 	PlaylistSummary(ctx context.Context) ([]map[string]any, error)
 }
 
-// PartyReader exposes the TV device summary.
-type PartyReader interface {
-	DeviceOverview(ctx context.Context) (map[string]any, error)
-}
-
 // BackgroundReader exposes the active task snapshot.
 type BackgroundReader interface {
 	ActiveSnapshot(ctx context.Context, limit int) (map[string]any, error)
@@ -80,7 +75,6 @@ type Dependencies struct {
 	Library    LibraryReader
 	Metadata   MetadataReader
 	Catalog    CatalogReader
-	Party      PartyReader
 	Background BackgroundReader
 	Playback   PlaybackReader
 	Cache      CacheReader
@@ -135,7 +129,6 @@ type Response struct {
 	Library     any               `json:"library"`
 	Sources     any               `json:"sources"`
 	Review      any               `json:"review"`
-	TV          any               `json:"tv"`
 	Tasks       any               `json:"tasks"`
 	RecentSongs any               `json:"recentSongs"`
 	Playback30d any               `json:"playback30d"`
@@ -193,9 +186,6 @@ func (s *Service) Collect(ctx context.Context) (*Response, error) {
 			return nil, err
 		}
 		return ReviewSection{MetadataBatch: batch, Classification: classification, MissingFeedbackPending: pending}, nil
-	})
-	s.section(ctx, out, "tv", &out.TV, func(ctx context.Context) (any, error) {
-		return s.deps.Party.DeviceOverview(ctx)
 	})
 	s.section(ctx, out, "tasks", &out.Tasks, func(ctx context.Context) (any, error) {
 		return s.deps.Background.ActiveSnapshot(ctx, 3)

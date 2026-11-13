@@ -120,14 +120,9 @@ def run(base):
     admin.problem(admin.call("GET", "/api/v1/playlists?size=0", status=400), 400)
     admin.problem(admin.call("GET", "/api/v1/tv/home", status=401), 401)
 
-    grant = public.call("POST", "/api/v1/device-authorizations", {"name": "隔离契约电视"}).json()
-    public.check(grant.get("status") == "PENDING" and len(grant.get("code", "")) == 6, "television grant contract differs")
-    grant_path = "/api/v1/device-authorizations/" + grant["id"] + "/poll"
-    pending = public.call("POST", grant_path, {"pollSecret": grant["pollSecret"]}).json()
-    public.check(pending.get("status") == "PENDING" and "token" not in pending, "pending grant revealed device token")
-    admin.call("POST", "/api/v1/admin/device-authorizations/" + grant["id"] + "/approve", {"code": grant["code"]}, csrf=True)
-    authorized = public.call("POST", grant_path, {"pollSecret": grant["pollSecret"]}).json()
-    public.check(isinstance(authorized.get("token"), str) and bool(authorized["token"]), "approved television token missing")
+    public.problem(public.call("POST", "/api/v1/auth/tv-session", {"name": "隔离契约电视"}, csrf=True, status=401), 401)
+    authorized = admin.call("POST", "/api/v1/auth/tv-session", {"name": "隔离契约电视"}, csrf=True).json()
+    admin.check(isinstance(authorized.get("token"), str) and bool(authorized["token"]), "television login token missing")
     device = {"Authorization": "Bearer " + authorized["token"]}
     public.call("GET", "/api/v1/tv/home", headers=device)
     public.problem(public.call("GET", "/api/v1/system/parameters", headers=device, status=401), 401)

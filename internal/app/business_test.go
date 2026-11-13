@@ -202,10 +202,7 @@ func exerciseBusiness(t *testing.T, a *Application, db *sqlx.DB, cfg config.Conf
 	if playlist["id"] != same["id"] {
 		t.Fatal("playlist duplicated")
 	}
-	device := c.call("POST", "/api/v1/device-authorizations", map[string]any{"name": "验收电视"}, "", 200)
-	authorizationID := stringField(device, "id")
-	c.call("POST", "/api/v1/admin/device-authorizations/"+authorizationID+"/approve", map[string]any{"code": device["code"]}, "", 200)
-	grant := c.call("POST", "/api/v1/device-authorizations/"+authorizationID+"/poll", map[string]any{"pollSecret": device["pollSecret"]}, "", 200)
+	grant := c.call("POST", "/api/v1/auth/tv-session", map[string]any{"name": "验收电视"}, "", 200)
 	token := stringField(grant, "token")
 	session := c.call("POST", "/api/v1/tv/sessions", map[string]any{}, token, 200)
 	sessionID := stringField(session, "id")

@@ -30,7 +30,6 @@ import (
 func overviewLibrary(media *library.Service) overview.LibraryReader       { return media }
 func overviewMetadata(tags *metadata.Service) overview.MetadataReader     { return tags }
 func overviewCatalog(curation *catalog.Service) overview.CatalogReader    { return curation }
-func overviewDevices(devices *party.Service) overview.PartyReader         { return devices }
 func overviewTasks(tasks *background.Service) overview.BackgroundReader   { return tasks }
 func overviewActivity(activity *playback.Service) overview.PlaybackReader { return activity }
 func overviewCache(processing *execution.Service) overview.CacheReader    { return processing }

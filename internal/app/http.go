@@ -21,7 +21,7 @@ func (a *Application) newRouter(services *applicationServices, log *slog.Logger)
 	router.GET("/api/health", a.health)
 	services.releases.Register(router)
 
-	// Gin snapshots middleware when each route is registered. Grants and Bearer
+	// Gin snapshots middleware when each route is registered. Internal and Bearer
 	// routes must be registered before the administrator Cookie/CSRF boundary.
 	services.node.RegisterPublic(router)
 	services.tags.RegisterInternal(router.Group("/api/v1"))
@@ -67,11 +67,7 @@ func allowsNonAdministrator(request *http.Request) bool {
 	if request.Method == http.MethodGet && path == "/api/v1/server-info" {
 		return true
 	}
-	if request.Method != http.MethodPost {
-		return false
-	}
-	return path == "/api/v1/device-authorizations" ||
-		(strings.HasPrefix(path, "/api/v1/device-authorizations/") && strings.HasSuffix(path, "/poll"))
+	return false
 }
 
 func (a *Application) health(ctx *gin.Context) {

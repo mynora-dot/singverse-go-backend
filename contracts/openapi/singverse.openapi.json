@@ -9276,90 +9276,25 @@
         "parameters": []
       }
     },
-    "/api/v1/device-authorizations": {
+    "/api/v1/auth/tv-session": {
       "post": {
         "tags": [
           "TV and party"
         ],
-        "summary": "Request ten-minute device grant",
-        "operationId": "tv_post_device_authorizations",
-        "security": [],
+        "summary": "Create a TV session after account login",
+        "operationId": "tv_create_account_session",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TvAuthorization"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "401": {
-            "description": "Credential missing, expired or revoked"
-          },
-          "403": {
-            "description": "Not authorized for this device, party or action"
-          },
-          "409": {
-            "description": "Revision conflict or state does not allow operation"
-          }
-        },
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 60
-                  }
-                },
-                "required": [
-                  "name"
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/device-authorizations/{id}/poll": {
-      "post": {
-        "tags": [
-          "TV and party"
-        ],
-        "summary": "Poll grant; approved responses repeat the same device credential",
-        "operationId": "tv_post_device_authorizations_id_poll",
-        "security": [],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string"
-                    },
-                    "deviceId": {
-                      "type": "string"
-                    },
-                    "token": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "status"
-                  ]
+                  "$ref": "#/components/schemas/TvSessionCredential"
                 }
               }
             }
@@ -9379,8 +9314,8 @@
         },
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
+            "name": "X-CSRF-Token",
+            "in": "header",
             "required": true,
             "schema": {
               "type": "string"
@@ -9394,17 +9329,20 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "pollSecret": {
-                    "type": "string"
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
                   }
                 },
                 "required": [
-                  "pollSecret"
+                  "name"
                 ]
               }
             }
           }
-        }
+        },
+        "description": "Requires a completed account login via /api/v1/auth/login and /api/v1/auth/mfa/verify when MFA is enabled. Submit name using the temporary administrator Cookie and X-CSRF-Token; returns an independent TV-only bearer token immediately. Log out the temporary account session after receiving it. No authorization code, approval or polling is used. Existing TV credentials remain valid."
       }
     },
     "/api/v1/admin/overview": {
@@ -9555,24 +9493,6 @@
                         "metadataBatch",
                         "classification",
                         "missingFeedbackPending"
-                      ]
-                    },
-                    "tv": {
-                      "type": [
-                        "object",
-                        "null"
-                      ],
-                      "properties": {
-                        "activeDevices": {
-                          "type": "integer"
-                        },
-                        "pending": {
-                          "type": "integer"
-                        }
-                      },
-                      "required": [
-                        "activeDevices",
-                        "pending"
                       ]
                     },
                     "tasks": {
@@ -9748,7 +9668,6 @@
                     "library",
                     "sources",
                     "review",
-                    "tv",
                     "tasks",
                     "recentSongs",
                     "playback30d",
@@ -9805,129 +9724,6 @@
         },
         "description": "Requires existing administrator Cookie session. Device and participant bearer tokens are rejected. Read-only aggregation of index counts and small row reads; each section is bounded by its own timeout and never streams a full-table search. Response is always no-store.",
         "parameters": []
-      }
-    },
-    "/api/v1/admin/tv-devices": {
-      "get": {
-        "tags": [
-          "TV and party"
-        ],
-        "summary": "List device grants and pending requests",
-        "operationId": "tv_get_admin_tv_devices",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "devices": {
-                      "type": "array",
-                      "items": {
-                        "type": "object"
-                      }
-                    },
-                    "pending": {
-                      "type": "array",
-                      "items": {
-                        "type": "object"
-                      }
-                    }
-                  },
-                  "required": []
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "401": {
-            "description": "Credential missing, expired or revoked"
-          },
-          "403": {
-            "description": "Not authorized for this device, party or action"
-          },
-          "409": {
-            "description": "Revision conflict or state does not allow operation"
-          }
-        },
-        "description": "Requires existing administrator Cookie session; writes require X-CSRF-Token. Device and participant bearer tokens are rejected.",
-        "parameters": []
-      }
-    },
-    "/api/v1/admin/device-authorizations/{id}/approve": {
-      "post": {
-        "tags": [
-          "TV and party"
-        ],
-        "summary": "Approve verified TV code",
-        "operationId": "tv_post_admin_device_authorizations_id_approve",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input"
-          },
-          "401": {
-            "description": "Credential missing, expired or revoked"
-          },
-          "403": {
-            "description": "Not authorized for this device, party or action"
-          },
-          "409": {
-            "description": "Revision conflict or state does not allow operation"
-          }
-        },
-        "description": "Requires existing administrator Cookie session; writes require X-CSRF-Token. Device and participant bearer tokens are rejected.",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "code": {
-                    "type": "string",
-                    "pattern": "^[0-9]{6}$"
-                  }
-                },
-                "required": [
-                  "code"
-                ]
-              }
-            }
-          }
-        }
       }
     },
     "/api/v1/admin/tv-devices/{id}": {
@@ -11370,44 +11166,6 @@
           },
           "404": {
             "description": "No applied cover"
-          }
-        }
-      }
-    },
-    "/api/v1/admin/device-authorizations/{id}": {
-      "delete": {
-        "operationId": "tv_deny_authorization",
-        "tags": [
-          "TV and party"
-        ],
-        "summary": "Administrator rejects pending television grant",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Rejected; no response body"
-          },
-          "401": {
-            "description": "Administrator required"
-          },
-          "403": {
-            "description": "CSRF rejected"
-          },
-          "409": {
-            "description": "Already processed"
           }
         }
       }
@@ -29008,37 +28766,6 @@
           "totalElements"
         ]
       },
-      "TvAuthorization": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "pollSecret": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "code",
-          "pollSecret",
-          "expiresAt",
-          "status"
-        ]
-      },
       "ArtistProfile": {
         "type": "object",
         "required": [
@@ -34632,6 +34359,22 @@
             "writeOnly": true
           }
         }
+      },
+      "TvSessionCredential": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "Independent TV bearer credential. Stored only as a SHA-256 digest on the server."
+          }
+        },
+        "required": [
+          "deviceId",
+          "token"
+        ]
       }
     }
   }

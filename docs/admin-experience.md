@@ -14,7 +14,7 @@
 | 曲库 `#/library/songs` | 歌曲 `#/library/songs` · 歌手 `#/library/artists` · 歌单 `#/library/playlists` · 分类标签 `#/library/classification` |
 | 加歌 `#/library/media` | 歌曲来源 `#/library/media` · 下载歌曲 `#/library/downloads` · 文件名识别 `#/library/media/recognition` |
 | 整理 `#/library/songs/metadata` | 歌曲信息 `#/library/songs/metadata` · 原唱与伴奏 `#/library/audio-processing` · 待审核 `#/library/review` |
-| 客厅 `#/system/tv-devices` | 电视连接 `#/system/tv-devices` · 电视首页 `#/system/tv-settings` · 播放与热门 `#/library/playback-history` · 缺歌心愿 `#/library/missing-feedback` |
+| 客厅 `#/system/tv-settings` | 电视首页 `#/system/tv-settings` · 播放与热门 `#/library/playback-history` · 缺歌心愿 `#/library/missing-feedback` |
 | utility | 任务中心 `#/system/tasks`（活跃徽章，30s 轮询 size=1，隐藏暂停、未登录不轮询）· 设置 `#/system/parameters` |
 | 设置组 | 账号与安全 · 音乐平台 `#/system/music-platforms` · 存储与缓存 `#/library/cache` · 计算与模型 `#/system/compute` · AI 与助手 `#/system/ai` · 服务状态 `#/system` |
 
@@ -61,7 +61,7 @@
 | 音轨读取、快速 / 深度分析、人工角色、指定试听 | 整理 → 原唱与伴奏 `#/library/audio-processing` | 检查音轨 → 试听核对 → 标记原唱 / 伴奏；`?song=` 兼容，`tab=setup` 重定向 `#/system/compute#audio-models` |
 | 单曲 / 批量伴奏、方案与成果 | 原唱与伴奏 → 歌曲 / 处理记录 | 明确范围 → 试片段 / 方案 → 确认 → 后台整曲生成 → 成果版本试听 |
 | 原片、HLS、兼容播放、离线版本 | 歌曲 → 播放 / 播放设置 | 保留原播放器与授权编排；关闭、切歌、音轨切换释放资源并保持必要播放位置 |
-| 电视申请、六位码、批准 / 拒绝 / 撤销 | 客厅 → 电视连接 `#/system/tv-devices` | 扫码仅定位并预填对应申请；核对设备与六位码后明确批准；已授权不冒充在线 |
+| 电视登录 | 电视端 → 账号登录 | 输入 NAS 地址和账号密码直接登录；启用二次验证时保留验证。网页端电视连接与授权管理页已移除 |
 | 电视封面、文案、轮播、预览 | 客厅 → 电视首页 `#/system/tv-settings` | 草稿即时预览 → 保存；图片上传单独保存，排序 / 开关需确认保存 |
 | 热门、实际播放、单曲历史 | 客厅 → 播放与热门 `#/library/playback-history` | 按时间 / 关键词查询，单曲抽屉展示全时段历史；不把入队次数当作实际播放 |
 | 缺歌登记与处理 | 客厅 → 缺歌心愿 `#/library/missing-feedback` | 登记 → 跟进处理状态 → 链接补齐；保留原有状态与操作 |
@@ -104,7 +104,7 @@
 - **集合页**：内容名称／数量与添加共行；说明用有名称的图标入口按需展开。搜索、来源和状态直接贴着内容，范围、统计与列表工具同组。歌曲整理／高级资料放进更多；批量动作仍在选择后出现，歌曲本页与歌手跨页范围不混用。
 - **流程页**：范围和启动动作同组，暂停／继续／终止贴对应批次，审核筛选贴结果；去掉介绍侧栏和多层外框，保留任务状态及按需说明。
 - **设置页**：账户和安全按行分隔；计算连接、模型、缓存策略和AI配置按各自区域组织。保存、重载和冲突仍归原表单，不增加全页统一保存。
-- **客厅与任务**：电视画面保留媒体预览；设备授权、播放记录、缺歌与任务列表用轻量分隔线组织。刷新贴当前内容，表格内部横滚，详情保留原返回筛选与轮询。
+- **客厅与任务**：电视画面保留媒体预览；播放记录、缺歌与任务列表用轻量分隔线组织。刷新贴当前内容，表格内部横滚，详情保留原返回筛选与轮询。
 
 `PageHeader` 的原props、actions／description槽保持，新增可选meta槽显示数量。手机保留搜索和主动作，来源／分类等筛选及本页统计按需展开，结果范围与视图／选择／刷新工具同组；说明与更多菜单关闭后恢复键盘焦点。标题为18px语义h1，不恢复旧的大标题／副说明区。主题、API、hash路径、选择／草稿保护、播放器与后台轮询规则保持原行为。
 
@@ -147,11 +147,11 @@
 - 原媒体实际播放，关闭后视频节点与播放资源释放；手机审核的候选 / 字段切换。
 - 歌单跨页选歌、只应用到编辑草稿、未保存离页提醒和继续编辑；保留既有歌单 500 首、分类选歌 5000 首限制。
 - 真实本地扫描批次完成 27 首、任务中心列表 / 明细与返回对应来源；手机导航焦点限制、Escape 关闭与焦点恢复。
-- 登录后的指定查询恢复；电视扫码仅定位、预填对应申请，未自动批准。已授权数量与实际在线状态分别表述。
+- 登录后的指定查询恢复；电视端账号密码登录，无需网页审批。
 - 未配置 AI、未连接计算节点、缺封面和空结果的可操作状态；不伪造模型能力、未知数量或处理进度。
 - Go 生产托管下 `/party/` 的独立样式、邀请加入、搜索、点歌、队列撤回和离开；管理端与亲友端仍分别构建和认证。
 
-截图交付含首页 / 空曲库、封面与列表曲库、详情 / 审核、歌单选歌、批量信息整理、电视首页 / 授权、任务及登录，另有三尺寸和亲友 H5 回归截图索引。完整过程另追加到本机 `docs/verification.md`。
+截图交付含首页 / 空曲库、封面与列表曲库、详情 / 审核、歌单选歌、批量信息整理、电视首页、任务及登录，另有三尺寸和亲友 H5 回归截图索引。完整过程另追加到本机 `docs/verification.md`。
 
 本次未部署 NAS、未使用微信或实体 TV，未执行外部音源下载、真实 AI、GPU / HLS 计算节点与长媒体的现场验收。相关能力沿用既有实现与行为测试；本次浏览器结果只证明上述已实际操作的流程。新搜索仍有服务端线性投影成本，没有进行十万首曲库性能验收。
 
@@ -195,7 +195,7 @@ SQLite/MySQL 增量迁移仅修改未使用的安装种子，使新安装默认�
 
 管理端从任务型后台推倒重做为个人媒体软件：主导航「首页 / 曲库 / 加歌 / 整理 / 客厅」加顶栏「任务中心」（活跃数徽章，30s 轮询 size=1，隐藏暂停、未登录不轮询）与「设置」组，普通用户词汇、技术细节折叠，全部既有路由路径与深链保留（详见上文信息架构、透镜判定与入口对照表）。视觉「暖光唱片馆」：暖米纸底、深松绿主色、柿红强调、中文衬线展示标题与唱片纹/票根/纸纹纯 CSS 质感；令牌名沿用只改值，约 40 个 `--el-*` 映射同步，样式文件彻底重写。首页不对称杂志网格（曲库脉搏真实数字 + 最近入库封面墙 + 正在处理 + 待办 inbox + 快捷入口 + 亲友票根卡），空曲库/无节点/未配 AI 均有完整引导态。
 
-统一歌曲页 `/library/songs` 按透镜渲染歌曲（SongsView）或歌曲资料·高级（FormalSongsView），旧正式深链补 `lens=formal`、`/library/songs/files` 补 `lens=songs` 并保留 query+hash，非空 query 恒带 lens；后端 relatedPath 与单曲审核深链全部承接。新增只读聚合端点 `GET /api/v1/admin/overview`（各 section 可空 + `errors` map 按块降级，DB 全挂 503，约 5s 超时，no-store，TV/party Bearer 401），首页 mount/手动刷新调 1 次，10s 任务轮询仍独立打 `/background-tasks?view=ACTIVE&size=3`，聚合不进轮询。歌曲查询沿用既有服务端 `search`（分页前计数排序），旧 `q` 保留为高级仅文件路径筛选。电视授权仅预填、核对后明确批准，已授权与实时在线分别表达；助手仅呈现已有配置，不包装未实现能力。产品名改为「家庭音乐中心」，docker 标题断言同步；亲友 H5 源码、样式、入口零改动。
+统一歌曲页 `/library/songs` 按透镜渲染歌曲（SongsView）或歌曲资料·高级（FormalSongsView），旧正式深链补 `lens=formal`、`/library/songs/files` 补 `lens=songs` 并保留 query+hash，非空 query 恒带 lens；后端 relatedPath 与单曲审核深链全部承接。新增只读聚合端点 `GET /api/v1/admin/overview`（各 section 可空 + `errors` map 按块降级，DB 全挂 503，约 5s 超时，no-store，TV/party Bearer 401），首页 mount/手动刷新调 1 次，10s 任务轮询仍独立打 `/background-tasks?view=ACTIVE&size=3`，聚合不进轮询。歌曲查询沿用既有服务端 `search`（分页前计数排序），旧 `q` 保留为高级仅文件路径筛选。电视端改为账号密码登录，网页授权页及关联统计已移除；助手仅呈现已有配置，不包装未实现能力。产品名改为「家庭音乐中心」，docker 标题断言同步；亲友 H5 源码、样式、入口零改动。
 
 本轮 `make frontend-check`（双入口 1912 模块）、`npm --prefix services/singverse-frontend test`（59 文件 508 项 0 跳过）、`make web-check` 通过；Go gofmt/vet/staticcheck 与 `go test -race ./...`（23 包）通过，`govulncheck` 命中既有标准库公告 GO-2026-6859（`net/http`@go1.27.3→go1.27.4，调用链均在既有代码、新增 overview 无命中），按约束未升级工具链未跳过门禁；`make db-fresh-check`（102 表 78 索引）、`make db-sqlite-check` 通过，`make db-mysql-check`/`make docker-check` 因本机无 Docker 未运行。真实隔离后端冒烟确认聚合端点 200/no-store/契约形状与 TV Bearer 401。无头 Chrome 在 1440×900、768×1024、390×844 完成 59 项页面检查（登录、23 管理路由、亲友 H5），无横向溢出、无 JS 运行时异常；5 条控制台网络状态日志（1×401 未登录会话探测、4×503 隔离环境无计算节点的真实健康返回）均被页面优雅处理。亲友 H5 渲染原有独立设计，双入口回归保持。截图基于空曲库隔离环境（各页空态与引导），含数据交互由 508 项行为测试覆盖；未更新业务容器、未迁移真实曲库，未执行 NAS/微信/实体 TV/手机/其他架构验收。过程与限制见[验证记录](verification.md)。
 

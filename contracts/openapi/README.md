@@ -106,7 +106,7 @@ WebDAV 使用保存的地址和加密凭据在服务端发起 GET/HEAD，转发 
 
 ## TV 与亲友聚会
 
-新增 TV/party 契约见 `singverse.openapi.json` 与 [TV 工程](https://github.com/mynora-dot/singverse-tv/blob/main/README.md)。`/server-info` 提供稳定实例身份；电视先申请十分钟授权，管理员在 `/admin/#/system/tv-devices` 核对短码并批准。轮询秘密换取独立设备 token，重复领取返回同一凭据，数据库只存摘要。设备 token 不授予管理员权限；撤销设备后媒体及关联聚会访问立即失效。
+新增 TV/party 契约见 `singverse.openapi.json` 与 [TV 工程](https://github.com/mynora-dot/singverse-tv/blob/main/README.md)。`/server-info` 提供稳定实例身份。电视输入 NAS 地址及账号密码，通过现有 `/auth/login`（启用 MFA 时继续 `/auth/mfa/verify`）完成认证，再使用临时管理员 Cookie 和 CSRF 调用 `POST /api/v1/auth/tv-session`，提交 `{name}` 直接取得 `{deviceId,token}`，随后注销临时管理员会话。数据库只保存独立电视 token 的摘要；该 token 仅用于曲库和聚会，不授予管理员权限。电视授权码、申请、审批、轮询和网页端电视连接页已移除；已有电视凭据保持可用。
 
 `/tv/**` 和 `/party/**` 只接受 Authorization Bearer，不接受管理员 Cookie。这两个独立命名空间不使用 CSRF；管理端继续 Cookie + CSRF。亲友邀请预览使用 POST 读取以避免令牌进入 URL 访问日志，预览不加入；显式 join 获得十二小时参与凭据，昵称不决定权限。邀请有效一小时，刷新使旧邀请失效，散场失效全部参与授权。
 

@@ -131,7 +131,6 @@ func (a *Application) initializeServices(cfg config.Config, db *sqlx.DB, logger 
 		Library:    overviewLibrary(media),
 		Metadata:   overviewMetadata(tags),
 		Catalog:    overviewCatalog(curation),
-		Party:      overviewDevices(devices),
 		Background: overviewTasks(tasks),
 		Playback:   overviewActivity(activity),
 		Cache:      overviewCache(processing),

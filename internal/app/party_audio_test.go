@@ -26,17 +26,14 @@ func TestPartyAudioRolesPreserveBearerAndPlaybackBoundaries(t *testing.T) {
 		t.Fatal(songs)
 	}
 	songID := stringField(object(items[0]), "id")
-	authorization := admin.call("POST", "/api/v1/device-authorizations", map[string]any{"name": "音轨验收电视"}, "", 200)
-	authorizationID := stringField(authorization, "id")
-	admin.call("POST", "/api/v1/admin/device-authorizations/"+authorizationID+"/approve", map[string]any{"code": authorization["code"]}, "", 200)
-	grant := admin.call("POST", "/api/v1/device-authorizations/"+authorizationID+"/poll", map[string]any{"pollSecret": authorization["pollSecret"]}, "", 200)
+	grant := admin.call("POST", "/api/v1/auth/tv-session", map[string]any{"name": "音轨验收电视"}, "", 200)
 	deviceToken := stringField(grant, "token")
 	session := admin.call("POST", "/api/v1/tv/sessions", map[string]any{}, deviceToken, 200)
 	invite := admin.call("POST", "/api/v1/tv/sessions/"+stringField(session, "id")+"/invitations", map[string]any{}, deviceToken, 200)
 	joined := admin.call("POST", "/api/v1/party/join", map[string]any{"invitation": invite["invitation"], "name": "音轨订正亲友"}, "", 200)
 	guestToken := stringField(joined, "token")
 	// H5 sends credentials: omit. Its explicit participant Bearer must work
-	// independently of the administrator Cookie used to approve the television.
+	// independently of the temporary account Cookie used to log in the television.
 	guest := &businessClient{t: t, origin: admin.origin, client: &http.Client{}}
 	partyPath := "/api/v1/party/audio-roles/songs/" + songID
 	tvPath := "/api/v1/tv/audio-roles/songs/" + songID

@@ -254,6 +254,31 @@ func realRemoteTags(t *testing.T, ctx context.Context, f *execFixture, tags *met
 		t.Fatal("real WebDAV extraction failed", result, err)
 	}
 	realMediaGET(t, ctx, callback+"/api/v1/internal/metadata-input/"+reference, c.Token, "bytes=0-3", 401)
+
+	// WebDAV audio must use the bounded analysis reader too. The old streaming
+	// callback forwarded FFprobe's open-ended Range and was rejected with 400.
+	if err = store.WithinTx(ctx, f.db, func(tx store.DBTX) error { return f.library.SyncMetadata(ctx, tx, songID) }); err != nil {
+		t.Fatal(err)
+	}
+	probe, err := f.s.SubmitAudio(ctx, songID, "PROBE", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := waitExecution(t, ctx, 35*time.Second, func() (map[string]any, error) {
+		f.s.tickAudio(ctx)
+		return f.s.one(ctx, f.db, "audio-job", map[string]any{"id": probe["id"]})
+	}, func(row map[string]any) bool { return str(row, "state") == "SUCCEEDED" })
+	if len(array(decoded(row["result_json"])["streams"])) != 2 {
+		t.Fatal("real bounded WebDAV audio probe lost streams", row)
+	}
+	var remoteBytes, playbackEntries int64
+	if err = f.db.QueryRowContext(ctx, `SELECT used_bytes FROM media_analysis_read WHERE id=?`, row["read_session_id"]).Scan(&remoteBytes); err != nil || remoteBytes <= 0 {
+		t.Fatal("WebDAV probe bypassed durable analysis accounting", remoteBytes, err)
+	}
+	if err = f.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM song_cache_entry WHERE song_id=?`, songID).Scan(&playbackEntries); err != nil || playbackEntries != 0 {
+		t.Fatal("audio analysis populated playback cache", playbackEntries, err)
+	}
+	t.Log("real WebDAV audio probe passed the bounded Go callback without HTTP 400")
 }
 
 func waitExecution(t *testing.T, ctx context.Context, limit time.Duration, read func() (map[string]any, error), ready func(map[string]any) bool) map[string]any {

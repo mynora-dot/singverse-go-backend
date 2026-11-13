@@ -143,7 +143,6 @@ func newOverviewFixture(t *testing.T, db *sqlx.DB, dialect string, cfg config.Co
 		Library:    media,
 		Metadata:   tags,
 		Catalog:    curation,
-		Party:      devices,
 		Background: tasks,
 		Playback:   activity,
 		Cache:      processing,
@@ -431,7 +430,7 @@ func exerciseOverview(t *testing.T, db *sqlx.DB, dialect string, cfg config.Conf
 	if err := json.Unmarshal(w.Body.Bytes(), &wire); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"library", "sources", "review", "tv", "tasks", "recentSongs", "playback30d", "cache", "readiness", "playlists", "observedAt", "errors"} {
+	for _, key := range []string{"library", "sources", "review", "tasks", "recentSongs", "playback30d", "cache", "readiness", "playlists", "observedAt", "errors"} {
 		if _, ok := wire[key]; !ok {
 			t.Fatalf("wire contract missing %q: %v", key, wire)
 		}
@@ -542,10 +541,6 @@ func TestOverviewEmptyDatabase(t *testing.T) {
 	review := response.Review.(ReviewSection)
 	if review.MetadataBatch != nil || review.MissingFeedbackPending != 0 {
 		t.Fatalf("empty review: %+v", review)
-	}
-	tv := response.TV.(map[string]any)
-	if jsonNumber(t, tv["activeDevices"]) != 0 || jsonNumber(t, tv["pending"]) != 0 {
-		t.Fatalf("empty tv: %v", tv)
 	}
 	tasks := response.Tasks.(map[string]any)
 	if jsonNumber(t, tasks["activeTotal"]) != 0 || len(anySlice(t, tasks["items"])) != 0 {

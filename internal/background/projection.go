@@ -61,8 +61,20 @@ func (s *Service) refresh(ctx context.Context, tx store.DBTX, kind, businessID s
 	if err = s.classify(ctx, tx, taskID, unclassified); err != nil {
 		return err
 	}
-	if kind == "WEBDAV_SCAN" && !active(text(projection.row, "status")) && text(source, "raw_status") != "SUCCEEDED" {
-		if err = s.exec(ctx, tx, "sealScope", doc{"id": taskID}); err != nil {
+	if kind == "WEBDAV_SCAN" && !active(text(projection.row, "status")) {
+		if text(source, "raw_status") == "SUCCEEDED" {
+			// Publication also leaves durable last_scan_id observations. They
+			// recover scans whose staging rows were cleared before admission.
+			root, e := s.row(ctx, tx, "find", doc{"id": taskID})
+			if e != nil {
+				return e
+			}
+			if number(root, "scope_sealed") == 0 {
+				if err = s.RegisterScanScope(ctx, tx, taskID, text(source, "source_id")); err != nil {
+					return err
+				}
+			}
+		} else if err = s.exec(ctx, tx, "sealScope", doc{"id": taskID}); err != nil {
 			return err
 		}
 	}

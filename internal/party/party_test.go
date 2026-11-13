@@ -113,7 +113,7 @@ func newPartyFixture(t *testing.T) *fixture {
 	require := admin.RequireAdmin()
 	r.Use(func(c *gin.Context) {
 		p := c.Request.URL.Path
-		if strings.HasPrefix(p, "/api/v1/tv/") || strings.HasPrefix(p, "/api/v1/party/") || p == "/api/v1/server-info" || strings.HasPrefix(p, "/api/v1/device-authorizations") {
+		if strings.HasPrefix(p, "/api/v1/tv/") || strings.HasPrefix(p, "/api/v1/party/") || p == "/api/v1/server-info" {
 			c.Next()
 			return
 		}
@@ -197,11 +197,7 @@ func (f *fixture) login(t *testing.T) {
 }
 func (f *fixture) device(t *testing.T) (string, string) {
 	t.Helper()
-	v := want(t, f.request(t, "POST", "/api/v1/device-authorizations", document{"name": "客厅电视"}, "", false, false), 200)
-	key := str(v, "id")
-	secret := str(v, "pollSecret")
-	want(t, f.request(t, "POST", "/api/v1/admin/device-authorizations/"+key+"/approve", document{"code": v["code"]}, "", true, true), 200)
-	value := want(t, f.request(t, "POST", "/api/v1/device-authorizations/"+key+"/poll", document{"pollSecret": secret}, "", false, false), 200)
+	value := want(t, f.request(t, "POST", "/api/v1/auth/tv-session", document{"name": "客厅电视"}, "", true, true), 200)
 	return str(value, "token"), str(value, "deviceId")
 }
 
@@ -254,22 +250,6 @@ func TestDeviceGrantInvitationQueuePlaybackAndRevocation(t *testing.T) {
 	want(t, f.request(t, "DELETE", "/api/v1/admin/tv-devices/"+deviceID, nil, "", true, true), 200)
 	want(t, f.request(t, "GET", "/api/v1/tv/media/song-a", nil, device, false, false), 401)
 	want(t, f.request(t, "GET", "/api/v1/party/sessions/"+sid+"/snapshot", nil, guest, false, false), 401)
-}
-
-func TestDevicePollingIdempotencyAndExpiry(t *testing.T) {
-	f := newPartyFixture(t)
-	pending := want(t, f.request(t, "POST", "/api/v1/device-authorizations", document{"name": "TV"}, "", false, false), 200)
-	key := str(pending, "id")
-	secret := str(pending, "pollSecret")
-	want(t, f.request(t, "POST", "/api/v1/device-authorizations/"+key+"/poll", document{"pollSecret": "wrong"}, "", false, false), 401)
-	want(t, f.request(t, "POST", "/api/v1/admin/device-authorizations/"+key+"/approve", document{"code": pending["code"]}, "", true, true), 200)
-	a := want(t, f.request(t, "POST", "/api/v1/device-authorizations/"+key+"/poll", document{"pollSecret": secret}, "", false, false), 200)
-	b := want(t, f.request(t, "POST", "/api/v1/device-authorizations/"+key+"/poll", document{"pollSecret": secret}, "", false, false), 200)
-	if a["token"] != b["token"] {
-		t.Fatal("credential changed on poll")
-	}
-	f.clock = f.clock.Add(11 * time.Minute)
-	want(t, f.request(t, "POST", "/api/v1/device-authorizations/"+key+"/poll", document{"pollSecret": secret}, "", false, false), 410)
 }
 
 func TestInvitationRefreshHostPermissionsAndEndedParty(t *testing.T) {

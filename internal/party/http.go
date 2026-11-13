@@ -61,7 +61,7 @@ func (s *Service) RequireActor(deviceOnly bool) gin.HandlerFunc {
 			return
 		}
 		if deviceOnly && str(a, "kind") != "device" {
-			s.report(c, fail(403, "需要电视设备授权"))
+			s.report(c, fail(403, "需要电视登录凭据"))
 			return
 		}
 		c.Set("partyActor", a)

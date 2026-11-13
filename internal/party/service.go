@@ -1,4 +1,4 @@
-// Package party owns device grants and the persistent single-device party aggregate.
+// Package party owns TV credentials and the persistent single-device party aggregate.
 package party
 
 import (
@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -344,24 +343,7 @@ func (s *Service) authenticate(ctx context.Context, tx store.DBTX, value string)
 	}
 	return v, nil
 }
-func (s *Service) authorize(ctx context.Context, tx store.DBTX, input document) (document, error) {
-	pending, err := s.list(ctx, tx, "authorization")
-	if err != nil {
-		return nil, err
-	}
-	recent := 0
-	for _, v := range pending {
-		if s.expired(v) {
-			if _, err = tx.ExecContext(ctx, s.q["delete"], str(v, "id")); err != nil {
-				return nil, err
-			}
-		} else {
-			recent++
-		}
-	}
-	if recent >= 30 {
-		return nil, fail(429, "授权申请较多，请稍后重试")
-	}
+func (s *Service) loginDevice(ctx context.Context, tx store.DBTX, input document) (document, error) {
 	name, err := text(input, "name", 60)
 	if err != nil {
 		return nil, err
@@ -370,105 +352,15 @@ func (s *Service) authorize(ctx context.Context, tx store.DBTX, input document) 
 	if err != nil {
 		return nil, err
 	}
-	code, err := rand.Int(rand.Reader, big.NewInt(1000000))
-	if err != nil {
-		return nil, err
-	}
-	v := document{"name": name, "code": fmt.Sprintf("%06d", code), "expiresAt": s.now().Add(10 * time.Minute).UTC().Format(time.RFC3339Nano), "status": "PENDING"}
-	if err = s.insert(ctx, tx, id(), "authorization", secret, v); err != nil {
-		return nil, err
-	}
-	out := clone(v)
-	out["pollSecret"] = secret
-	return out, nil
-}
-func (s *Service) approve(ctx context.Context, tx store.DBTX, key string, input document) (document, error) {
-	if err := s.lock(ctx, tx, key); err != nil {
-		return nil, err
-	}
-	r, err := s.getRecord(ctx, tx, key)
-	if err != nil {
-		return nil, err
-	}
-	v := r.doc
-	if r.kind != "authorization" || s.expired(v) || str(v, "status") != "PENDING" {
-		return nil, fail(409, "申请已处理或过期")
-	}
-	code, err := text(input, "code", 6)
-	if err != nil {
-		return nil, err
-	}
-	if code != str(v, "code") {
-		return nil, fail(400, "授权码不匹配")
-	}
-	d := document{"name": v["name"], "revoked": false}
-	device := id()
+	device, credential := id(), id()
+	d := document{"name": name, "revoked": false, "credentialId": credential}
 	if err = s.insert(ctx, tx, device, "device", "", d); err != nil {
 		return nil, err
 	}
-	v["deviceId"] = device
-	v["status"] = "APPROVED"
-	if err = s.save(ctx, tx, v); err != nil {
+	if err = s.insert(ctx, tx, credential, "credential", secret, document{"deviceId": device}); err != nil {
 		return nil, err
 	}
-	return d, nil
-}
-func (s *Service) deny(ctx context.Context, tx store.DBTX, key string) error {
-	if err := s.lock(ctx, tx, key); err != nil {
-		return err
-	}
-	r, err := s.getRecord(ctx, tx, key)
-	if err != nil {
-		return err
-	}
-	if r.kind != "authorization" || str(r.doc, "status") != "PENDING" {
-		return fail(409, "申请已处理")
-	}
-	r.doc["status"] = "DENIED"
-	return s.save(ctx, tx, r.doc)
-}
-func (s *Service) exchange(ctx context.Context, tx store.DBTX, key, secret string) (document, error) {
-	r, err := s.getRecord(ctx, tx, key)
-	if err != nil {
-		return nil, err
-	}
-	v := r.doc
-	if r.kind != "authorization" || secret == "" || hash(secret) != r.secret.String {
-		return nil, fail(401, "授权凭据无效")
-	}
-	if s.expired(v) {
-		return nil, fail(410, "授权已过期，请重新申请")
-	}
-	out := document{"status": v["status"]}
-	if str(v, "status") != "APPROVED" {
-		return out, nil
-	}
-	device := str(v, "deviceId")
-	if err = s.lock(ctx, tx, device); err != nil {
-		return nil, err
-	}
-	d, err := s.get(ctx, tx, device)
-	if err != nil {
-		return nil, err
-	}
-	if boolean(d, "revoked") {
-		return nil, fail(401, "设备已撤销")
-	}
-	credential := hash("singverse:device:" + secret)
-	out["deviceId"] = device
-	out["token"] = credential
-	if str(d, "credentialId") != "" {
-		return out, nil
-	}
-	cid := id()
-	if err = s.insert(ctx, tx, cid, "credential", credential, document{"deviceId": device}); err != nil {
-		return nil, err
-	}
-	d["credentialId"] = cid
-	if err = s.save(ctx, tx, d); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return document{"deviceId": device, "token": secret}, nil
 }
 func (s *Service) revoke(ctx context.Context, tx store.DBTX, key string) error {
 	if err := s.lock(ctx, tx, key); err != nil {
