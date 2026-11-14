@@ -24,6 +24,7 @@ func pageParams(c *gin.Context) (int, int, error) {
 	return p, size, pages(p, size)
 }
 func (s *Service) Register(r *gin.Engine) {
+	s.registerFavorites(r, "/api/v1/favorites", false)
 	s.registerClassification(r)
 	s.registerPlaylists(r)
 	s.registerArtists(r)

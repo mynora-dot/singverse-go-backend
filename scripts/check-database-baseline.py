@@ -12,9 +12,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "202611070001_initial_schema.sql"
 VERSION = BASELINE.split("_", 1)[0]
-MIGRATIONS = (BASELINE, "202611080001_background_tasks.sql", "202611090001_background_task_batches.sql", "202611090002_audio_separation_profiles.sql", "202611090003_lx_downloads.sql", "202611100001_artist_artwork_batches.sql", "202611100002_music_platform_defaults.sql", "202611100003_media_library_workflows.sql", "202611110001_metadata_standard.sql", "202611120001_login_preferences.sql", "202611120002_audio_recognition_batches.sql", "202611120003_matching_defaults.sql", "202611120005_import_input_cleanup.sql", "202611120006_analysis_read.sql")
+MIGRATIONS = (BASELINE, "202611080001_background_tasks.sql", "202611090001_background_task_batches.sql", "202611090002_audio_separation_profiles.sql", "202611090003_lx_downloads.sql", "202611100001_artist_artwork_batches.sql", "202611100002_music_platform_defaults.sql", "202611100003_media_library_workflows.sql", "202611110001_metadata_standard.sql", "202611120001_login_preferences.sql", "202611120002_audio_recognition_batches.sql", "202611120003_matching_defaults.sql", "202611120005_import_input_cleanup.sql", "202611120006_analysis_read.sql", "202611140001_shared_favorites.sql")
 VERSIONS = sorted((name.split("_", 1)[0],) for name in MIGRATIONS)
-LEGACY_VERSIONS = VERSIONS[:-2]
+LEGACY_VERSIONS = VERSIONS[:-3]
 
 
 def require(condition, message):
@@ -49,7 +49,8 @@ def verify_fresh(path):
     music = db.execute("SELECT enabled,providers_json,auto_apply,threshold,min_interval_seconds,max_interval_seconds FROM metadata_settings WHERE id=1").fetchone()
     require(music[0] == 1 and json.loads(music[1]) == ["NETEASE", "QQ", "KUGOU", "KUWO", "QISHUI"] and music[2:] == (0, .8, 1, 2), "Wrong fresh music platform defaults")
     require(data["lx_download_settings"] == [(1, None, None, 0)], "Wrong download binding defaults")
-    for table in ("media_analysis_read", "media_import_job", "media_import_entry", "media_shared_song", "media_shared_baseline", "media_ingest_request", "media_share_series", "artist_artwork_batch", "artist_artwork_item", "lx_script", "lx_catalog_track", "lx_download_batch", "lx_download_item", "lx_download_asset", "auth_account", "media_source", "media_song", "playback_history", "playback_attempt", "song_cache_entry", "song_playback_profile", "background_task", "background_task_item", "background_task_relation", "background_scan_scope"):
+    require(data["nas_favorites_state"] == [(1, 0)], "Wrong shared favorites seed")
+    for table in ("nas_favorite", "media_analysis_read", "media_import_job", "media_import_entry", "media_shared_song", "media_shared_baseline", "media_ingest_request", "media_share_series", "artist_artwork_batch", "artist_artwork_item", "lx_script", "lx_catalog_track", "lx_download_batch", "lx_download_item", "lx_download_asset", "auth_account", "media_source", "media_song", "playback_history", "playback_attempt", "song_cache_entry", "song_playback_profile", "background_task", "background_task_item", "background_task_relation", "background_scan_scope"):
       require(not data[table], f"Fresh database unexpectedly contains {table} data")
     for table in ("media_song", "media_scan_song"):
       columns = {row[1]: row for row in db.execute(f"PRAGMA table_info({table})")}
@@ -107,9 +108,20 @@ def main():
     initial = verify_fresh(path)
     migrate("migrate")
     require(snapshot(path) == initial, "Second migrate changed schema or seeds")
+    migrate("down")  # Shared favorites; this is an isolated temporary database.
+    with sqlite3.connect(path) as db:
+      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-1], "Favorites rollback must retain prior features")
+      require(not db.execute("SELECT name FROM sqlite_master WHERE name IN ('nas_favorite','nas_favorites_state')").fetchall(), "Favorites rollback left tables")
+      db.execute("INSERT INTO song_playback_profile(song_id,pinned,pin_revision) VALUES('favorite-upgrade-kept',1,1)")
+    migrate("migrate")
+    with sqlite3.connect(path) as db:
+      require(db.execute("SELECT pinned FROM song_playback_profile WHERE song_id='favorite-upgrade-kept'").fetchone() == (1,), "Favorites upgrade changed existing media state")
+      db.execute("DELETE FROM song_playback_profile WHERE song_id='favorite-upgrade-kept'")
+    require(snapshot(path) == initial, "Favorites rollback/rebuild changed prior data")
+    migrate("down")  # Shared favorites again before the existing rollback ladder.
     migrate("down")  # Analysis read sessions.
     with sqlite3.connect(path) as db:
-      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-1], "Analysis rollback must preserve prior features")
+      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-2], "Analysis rollback must preserve prior features")
       require(not db.execute("SELECT name FROM sqlite_master WHERE name='media_analysis_read'").fetchall(), "Analysis rollback left read sessions")
     migrate("down")  # Independent import input cleanup.
     with sqlite3.connect(path) as db:

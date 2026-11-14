@@ -208,6 +208,24 @@ func exerciseBusiness(t *testing.T, a *Application, db *sqlx.DB, cfg config.Conf
 	sessionID := stringField(session, "id")
 	invite := c.call("POST", "/api/v1/tv/sessions/"+sessionID+"/invitations", map[string]any{}, token, 200)
 	guest := c.call("POST", "/api/v1/party/join", map[string]any{"invitation": invite["invitation"], "name": "亲友"}, "", 200)
+	// Admin/mobile Cookie and TV Bearer share one NAS collection. Guest
+	// participants and administrator Cookies cannot impersonate a TV device.
+	favorite := map[string]any{"songIds": []string{songID}, "selected": true}
+	adminFavorites := c.call("PUT", "/api/v1/favorites", favorite, "", 200)
+	tvFavorites := c.call("GET", "/api/v1/tv/favorites/ids", nil, token, 200)
+	if fmt.Sprint(adminFavorites) != fmt.Sprint(tvFavorites) {
+		t.Fatal(adminFavorites, tvFavorites)
+	}
+	c.call("GET", "/api/v1/tv/favorites", nil, "", 401)
+	c.call("GET", "/api/v1/tv/favorites", nil, stringField(guest, "token"), 403)
+	c.call("PUT", "/api/v1/tv/favorites", favorite, stringField(guest, "token"), 403)
+	c.call("PUT", "/api/v1/tv/favorites", map[string]any{"songIds": []string{songID}, "selected": false}, token, 200)
+	if c.call("GET", "/api/v1/favorites", nil, "", 200)["totalElements"] != float64(0) {
+		t.Fatal("TV cancel not shared")
+	}
+	c.call("GET", "/api/v1/mobile/library/songs", nil, "", 200)
+	unauthed := newBusinessClient(t, a)
+	unauthed.call("GET", "/api/v1/favorites", nil, token, 401)
 	// Download-derived covers are shared by the management, TV and H5 clients.
 	// Use a real lossless WebP rather than an uploaded PNG so the composition
 	// boundary must decode the format actually accepted by LX downloads.
