@@ -29,8 +29,8 @@ Go 的 components.json 固定前端 tag，手机和 TV 在每次新平台打包�
 1. 在手机、TV 仓库按各自 README 配置长期签名 Secrets，安全备份原始密钥。
 2. 发布两端正式 Release，检查签名 APK、release.json 和 SHA256SUMS。
 3. 发布前端完整静态包，确认包含 admin、party、downloads。
-4. 确认 Go components.json 指向该前端 tag，配置跨仓只读权限与三平台镜像发布变量/Secrets，再发布 Go。
-5. compute 配置其自身镜像发布环境后独立发布，部署显式选择 COMPUTE_VERSION。
+4. 确认 Go components.json 指向该前端 tag，配置跨仓只读权限与三平台镜像发布 Variables/Secrets，再发布 Go。正式 Release 自动使用 Variables；手动 Run workflow 可用 `release_tag` 选择已有正式版，并用 `ghcr_namespace`、`dockerhub_namespace`、`acr_registry`、`acr_namespace` 覆盖本次目标空间，见[发布参数](../infra/docker/PUBLISHING.md)。
+5. compute 配置其自身镜像发布环境后独立发布，手动发布采用相同目标参数；部署显式选择 COMPUTE_VERSION。同机 Compose 共用 IMAGE_PREFIX，应把主服务和 compute 发布到对应平台的同一空间。
 
 当前没有既有正式 APK；旧 debug 安装的证书可能不同。覆盖升级只支持相同包名与受信签名，更新功能不会自动卸载或清除用户数据。
 

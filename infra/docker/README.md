@@ -88,6 +88,24 @@ make docker-down
 
 业务镜像版本由 SINGVERSE_VERSION 选择，计算节点独立使用 COMPUTE_VERSION。可选节点不加入主服务健康依赖。SQLite 数据与认证密钥卷须一起备份，禁止任意删除命名卷。
 
+### 选择镜像仓库和项目空间
+
+正式镜像由 GitHub Actions 同步推送到 GHCR、Docker Hub、阿里云 ACR。发布者在 Run workflow 中填写 `release_tag`、`ghcr_namespace`、`dockerhub_namespace`、`acr_registry`、`acr_namespace`；目标参数留空使用 Actions Variables。完整参数和凭据见 [PUBLISHING](PUBLISHING.md)。
+
+部署时把 `.env` 的 `IMAGE_PREFIX` 改为这次实际发布的前缀，只选择其中一个：
+
+| 镜像来源 | `IMAGE_PREFIX` |
+| --- | --- |
+| GitHub GHCR | `ghcr.io/<ghcr_namespace>` |
+| Docker Hub | `docker.io/<dockerhub_namespace>` |
+| 阿里云 ACR | `<acr_registry>/<acr_namespace>` |
+
+前缀不含镜像名、tag 或末尾斜杠。主服务最终地址为 `${IMAGE_PREFIX}/singverse:${SINGVERSE_VERSION}`，可选计算节点为 `${IMAGE_PREFIX}/singverse-compute:${COMPUTE_VERSION}-${COMPUTE_RUNTIME}`。同机部署两类镜像时，发布者应将它们放入对应平台的同一空间；独立节点可单独配置前缀。
+
+生产部署填写已发布的固定数字版本，例如 `SINGVERSE_VERSION=0.1.0`、`COMPUTE_VERSION=0.1.0`，两者按各自实际版本选择；GitHub Release tag 的 `v` 不写入镜像版本。`COMPUTE_RUNTIME=base` 默认适配 amd64/arm64。示例版本不表示远端已有可拉取产物。
+
+私有仓库先在部署主机执行 `docker login <仓库域名>`，再运行 `make docker-pull docker-image-up`。切换镜像仓库只修改前缀，保持 `singverse-go-app` 项目名及现有卷；先核对相同固定版本的 digest，详见 [运维指南](OPERATIONS.md)。
+
 ```sh
 make docker-config-check docker-context-check docker-test
 make go-container-check auth-docker-check
