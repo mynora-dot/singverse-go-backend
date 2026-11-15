@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -105,10 +106,12 @@ type readEntry struct {
 	artists      []string
 }
 type readIndex struct {
-	entries []readEntry
-	byID    map[string]readEntry
-	artists map[string]document
-	built   time.Time
+	entries                          []readEntry
+	byID                             map[string]readEntry
+	artists                          map[string]document
+	built                            time.Time
+	checked                          time.Time
+	fingerprint, profilesFingerprint string
 }
 
 func artistID(name string) string {
@@ -121,14 +124,41 @@ func (s *Service) Invalidate() { s.indexMu.Lock(); s.index = nil; s.indexMu.Unlo
 func (s *Service) current(ctx context.Context) (*readIndex, error) {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
-	if s.index != nil && s.now().Sub(s.index.built) < 30*time.Second {
+	checked := time.Time{}
+	if s.index != nil {
+		checked = s.index.checked
+		if checked.IsZero() {
+			checked = s.index.built
+		}
+	}
+	if s.index != nil && s.now().Sub(checked) < 30*time.Second {
 		return s.index, nil
+	}
+	// Keep the periodic check for writes which do not use Invalidate. Hash the
+	// original database fields without reconstructing projections or pinyin.
+	fingerprint, profilesFingerprint := "", ""
+	if versioned, ok := s.library.(interface {
+		LibraryFingerprint(context.Context, store.DBTX) (string, error)
+	}); ok {
+		var err error
+		fingerprint, err = versioned.LibraryFingerprint(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		profilesFingerprint, err = store.QueryFingerprint(ctx, s.db, s.q["artist_profiles"])
+		if err != nil {
+			return nil, err
+		}
+		if s.index != nil && fingerprint == s.index.fingerprint && profilesFingerprint == s.index.profilesFingerprint {
+			s.index.checked = s.now()
+			return s.index, nil
+		}
 	}
 	songs, err := s.library.LibrarySongs(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	out := &readIndex{entries: []readEntry{}, byID: map[string]readEntry{}, artists: map[string]document{}, built: s.now()}
+	out := &readIndex{entries: []readEntry{}, byID: map[string]readEntry{}, artists: map[string]document{}, built: s.now(), checked: s.now(), fingerprint: fingerprint, profilesFingerprint: profilesFingerprint}
 	profiles := map[string]document{}
 	rows, err := s.db.QueryContext(ctx, s.q["artist_profiles"])
 	if err != nil {
@@ -308,6 +338,8 @@ func (s *Service) searchSongs(c *gin.Context, mobile bool) {
 	needle := search.Normalize(c.DefaultQuery("q", ""))
 	artist := c.Query("artistId")
 	items := []document{}
+	from, to := int64(page)*int64(size), int64(page+1)*int64(size)
+	total := 0
 	for _, entry := range index.entries {
 		if needle != "" && !strings.Contains(entry.search, needle) && entry.code != needle {
 			continue
@@ -344,13 +376,20 @@ func (s *Service) searchSongs(c *gin.Context, mobile bool) {
 		if !matches {
 			continue
 		}
+		position := int64(total)
+		total++
+		if position < from || position >= to {
+			continue
+		}
 		if mobile {
 			items = append(items, mobileProjection(entry.raw))
 		} else {
 			items = append(items, entry.song)
 		}
 	}
-	c.JSON(200, paginate(items, page, size))
+	out := paginate(items, 0, size)
+	out["page"], out["totalElements"] = page, total
+	c.JSON(200, out)
 }
 func (s *Service) registerLibrary(r *gin.Engine) {
 	for _, prefix := range []string{"tv", "party"} {

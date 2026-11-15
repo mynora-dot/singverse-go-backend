@@ -41,12 +41,25 @@ func (s *Service) Song(ctx context.Context, id string) (map[string]any, error) {
 	return s.SongWith(ctx, s.db, id)
 }
 
+const visibleLibrarySongs = " WHERE song.location_state='PRESENT' AND COALESCE(formal_song.suppressed,0)=0 AND COALESCE(formal_variant.suppressed,0)=0 AND COALESCE(formal_media.suppressed,0)=0"
+
+// LibraryFingerprint streams the exact inputs used by LibrarySongs. It still
+// reads all visible rows, but avoids JSON decoding and projection allocations.
+// Sharing the query also covers newly added projection fields and changes made
+// by another writer without a service invalidation notification.
+func (s *Service) LibraryFingerprint(ctx context.Context, db store.DBTX) (string, error) {
+	if db == nil {
+		db = s.db
+	}
+	return store.QueryFingerprint(ctx, db, s.q["song-columns"]+visibleLibrarySongs+" ORDER BY song.id")
+}
+
 // LibrarySongs reads one consistent bulk projection without nested database calls.
 func (s *Service) LibrarySongs(ctx context.Context, db store.DBTX) ([]map[string]any, error) {
 	if db == nil {
 		db = s.db
 	}
-	rows, e := db.QueryxContext(ctx, s.q["song-columns"]+" WHERE song.location_state='PRESENT' AND COALESCE(formal_song.suppressed,0)=0 AND COALESCE(formal_variant.suppressed,0)=0 AND COALESCE(formal_media.suppressed,0)=0")
+	rows, e := db.QueryxContext(ctx, s.q["song-columns"]+visibleLibrarySongs)
 	if e != nil {
 		return nil, e
 	}

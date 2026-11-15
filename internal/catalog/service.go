@@ -42,22 +42,23 @@ type ArtistProvider interface {
 	ArtistArtworkProviders(context.Context, store.DBTX) ([]string, error)
 }
 type Service struct {
-	db             *sqlx.DB
-	q              map[string]string
-	library        Library
-	ai             *ai.Service
-	cipher         ai.Cipher
-	devices        Invalidator
-	log            *slog.Logger
-	project        func(context.Context, store.DBTX, string, string) error
-	cancel         context.CancelFunc
-	done           chan struct{}
-	generating     atomic.Bool
-	busy           atomic.Bool
-	artistProvider ArtistProvider
-	artworkIndex   map[string][]map[string]any
-	artworkBuilt   time.Time
-	pathChanged    func(context.Context, store.DBTX, string, string) error
+	db                 *sqlx.DB
+	q                  map[string]string
+	library            Library
+	ai                 *ai.Service
+	cipher             ai.Cipher
+	devices            Invalidator
+	log                *slog.Logger
+	project            func(context.Context, store.DBTX, string, string) error
+	cancel             context.CancelFunc
+	done               chan struct{}
+	generating         atomic.Bool
+	busy               atomic.Bool
+	artistProvider     ArtistProvider
+	artworkIndex       map[string][]map[string]any
+	artworkBuilt       time.Time
+	artworkFingerprint string
+	pathChanged        func(context.Context, store.DBTX, string, string) error
 }
 
 func New(db *sqlx.DB, dialect string, cfg config.Config, lib Library, models *ai.Service, cipher ai.Cipher, devices Invalidator, log *slog.Logger) (*Service, error) {

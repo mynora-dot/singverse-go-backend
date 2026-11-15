@@ -65,19 +65,35 @@ func (s *Service) processArtwork(ctx context.Context) {
 	var name string
 	var titles []string
 	refs := []metadata.ArtistRef{}
+	var refreshed map[string][]map[string]any
+	var fingerprint string
+	var checked time.Time
 	e := store.WithinTx(ctx, s.db, func(tx store.DBTX) error {
 		groups := s.artworkIndex
 		if groups == nil || time.Since(s.artworkBuilt) >= 30*time.Second {
-			all, e := s.ensureArtists(ctx, tx)
-			if e != nil {
-				return e
+			changed := true
+			if versioned, ok := s.library.(interface {
+				LibraryFingerprint(context.Context, store.DBTX) (string, error)
+			}); ok {
+				var e error
+				fingerprint, e = versioned.LibraryFingerprint(ctx, tx)
+				if e != nil {
+					return e
+				}
+				changed = groups == nil || fingerprint != s.artworkFingerprint
 			}
-			groups = map[string][]map[string]any{}
-			for artist, songs := range all {
-				groups[artist] = append([]map[string]any{}, songs[:min(len(songs), 3)]...)
+			if changed {
+				all, e := s.ensureArtists(ctx, tx)
+				if e != nil {
+					return e
+				}
+				groups = map[string][]map[string]any{}
+				for artist, songs := range all {
+					groups[artist] = append([]map[string]any{}, songs[:min(len(songs), 3)]...)
+				}
+				refreshed = groups
 			}
-			s.artworkIndex = groups
-			s.artworkBuilt = time.Now()
+			checked = time.Now()
 		}
 		var e error
 		job, e = one(ctx, tx, s.q["a_pendingImage"], now())
@@ -132,6 +148,14 @@ func (s *Service) processArtwork(ctx context.Context) {
 		}
 		return nil
 	})
+	if e == nil && !checked.IsZero() {
+		// Publish only after commit; a rolled-back discovery must be retried.
+		if refreshed != nil {
+			s.artworkIndex = refreshed
+		}
+		s.artworkFingerprint = fingerprint
+		s.artworkBuilt = checked
+	}
 	if e != nil || job == nil {
 		return
 	}
