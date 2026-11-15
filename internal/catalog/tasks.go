@@ -248,9 +248,9 @@ func (s *Service) taskView(ctx context.Context, tx store.DBTX, r map[string]any,
 	if status != "" {
 		filter = status
 	}
-	var count int64
-	if e = tx.QueryRowContext(ctx, s.q["c_itemCount"], task, filter, filter).Scan(&count); e != nil {
-		return nil, e
+	count := total
+	if status != "" {
+		count = counts[status]
 	}
 	items := []map[string]any{}
 	if size > 0 {
