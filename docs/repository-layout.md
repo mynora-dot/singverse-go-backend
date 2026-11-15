@@ -12,4 +12,4 @@
 | docs/ | 当前说明、第三方许可及注明范围的历史验证 |
 | .build/platform/ | 被忽略的已校验前端、两端 APK 和组件锁 |
 
-根 VERSION 定义 Go 版本；components.json 固定前端 Release。手机、TV 和 compute 在各自仓库维护版本、源码、构建工具及发布链。系统分工和发布顺序见[多仓库说明](multi-repository.md)。
+GitHub Release 标签定义 Go 版本，Actions 注入 SINGVERSE_VERSION；components.json 指定组件仓库，首次打包解析最新正式 Release 并保存锁清单。手机、TV 和 compute 在各自仓库维护版本、源码、构建工具及发布链。系统分工和发布顺序见[多仓库说明](multi-repository.md)。

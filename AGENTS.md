@@ -4,7 +4,7 @@
 
 Go 是唯一业务主服务与业务数据库写入方；compute 只执行内部媒体计算。使用 database/sql + sqlx、所属模块嵌入 SQL 与显式事务；跨模块事务复用 store.DBTX。Gin 只处理 HTTP 边界。前端、手机、TV 只调用 Go，前端请求同源 /api。
 
-根 VERSION 是唯一产品版本来源。components.json 固定前端正式 Release；新平台打包解析一次两端最新正式包，所有架构与重试复用组件锁。正式包缺失、签名、摘要或版本错误必须失败。运行期间只从镜像内提供 APK，公开下载不扩大管理或曲库权限。
+正式产品版本由 GitHub Release 标签 vMAJOR.MINOR.PATCH 决定，Actions 注入 SINGVERSE_VERSION；源码不维护 VERSION 文件，本地开发默认 0.0.0。components.json 指定组件仓库，首次平台打包解析一次前端与两端最新正式包，所有架构与重试复用组件锁。正式包缺失、签名、摘要或版本错误必须失败。运行期间只从镜像内提供 APK，公开下载不扩大管理或曲库权限。
 
 contracts 是权威契约；消费仓库保存带 SOURCE.json 的快照。前端完整 dist 同时包含 admin、party、downloads；Go 构建前准备并嵌入，不引入生产 Node/JVM。工具使用 scripts/go-env.sh 与仓库 .tools，禁止隐式访问旧仓库。
 
@@ -12,6 +12,6 @@ contracts 是权威契约；消费仓库保存带 SOURCE.json 的快照。前端
 
 不提交环境文件、凭据、签名密钥、SDK 路径、数据库、日志、缓存或构建产物。发布标签不可覆盖为不同内容；本地开发任务不授权远端推送或发布。
 
-按 README 与 Makefile 运行对应检查。真实 Go/compute 联动通过 SINGVERSE_COMPUTE_PROJECT 显式指定固定检出。交付报告本次实际结果；本机构建和 CI 配置不能代替远程 CI、NAS、手机、TV 或 GPU 真机验收。
+GitHub Actions 只在正式 Release 发布后构建和上传，不运行独立测试、lint 或 verify。按 README 与 Makefile 在本地按需检查。真实 Go/compute 联动通过 SINGVERSE_COMPUTE_PROJECT 显式指定固定检出。交付报告本次实际结果；本机构建和 CI 配置不能代替远程 CI、NAS、手机、TV 或 GPU 真机验收。
 
 通用技能维护在项目外的用户技能目录（`$CODEX_HOME/skills`，默认 `~/.codex/skills`），按任务读取；不在仓库内保存技能副本。

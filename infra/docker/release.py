@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import subprocess
@@ -11,16 +12,15 @@ import shutil
 import tarfile
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from build_version import release_version
+
 ROOT = Path(__file__).resolve().parents[2]
 VARIANTS = {'app': ['amd64', 'arm64']}
 
 
 def config(env=os.environ):
-    version = (ROOT / 'VERSION').read_text().strip()
-    if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
-        raise ValueError('VERSION must be a stable semantic release version')
-    if env.get('RELEASE_TAG') != 'v' + version:
-        raise ValueError('GitHub Release tag must equal v + VERSION')
+    version = release_version(env)
     ghcr = env.get('GHCR_NAMESPACE') or env.get('GITHUB_REPOSITORY_OWNER', '').lower()
     hub, acr, host = (env.get(key, '') for key in ('DOCKERHUB_NAMESPACE', 'ACR_NAMESPACE', 'ACR_REGISTRY'))
     for value in (ghcr, hub, acr):

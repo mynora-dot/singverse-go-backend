@@ -1,53 +1,42 @@
 # 管理平台镜像发布
 
-`platform-release.yml` 将同一组已验收镜像推送到 GitHub Container Registry（GHCR）、Docker Hub 和阿里云 ACR。支持正式 Release 自动发布，以及通过 Actions → platform-release → Run workflow 手动选择已有正式 Release 和三个平台的项目空间。GitHub Release 保存组件锁与 OCI 归档，容器镜像保存在 GHCR；二者用途不同。
+`platform-release.yml` 仅在 GitHub 页面点击 Publish release、发布正式 Release 时触发。普通 push/PR、保存草稿和 Pre-release 不执行发布，也不提供 Run workflow 手动入口。流程直接准备组件、构建和上传，不运行单元测试、静态分析、lint 或独立 verify 阶段。
 
-发布 tag 必须匹配所选源码根 `VERSION`（`v` + 版本号），不接受 draft/prerelease。手动发布使用该 tag 对应的源码及 revision。前端由 `components.json` 固定，手机和 TV 在首次打包时取各自最新正式 Release。Android 包在打包机通过 `apksigner`、`aapt` 校验，最终容器无 JDK、Node 或 Go 编译器。
+Release 标签使用 `vMAJOR.MINOR.PATCH`，如 `v0.0.2`。Actions 自动注入 `SINGVERSE_VERSION=0.0.2`；源码不维护 VERSION 文件，无需在 GitHub Variables 中设置版本。本地源码构建默认 `0.0.0`，指定版本可设置 `SINGVERSE_VERSION`。标签必须指向包含新版工作流的提交。
+
+前端、手机和 TV 在首次打包时解析各自最新正式 Release，也可在 `components.json` 显式指定组件 tag。所有架构共用同一组件锁，重试复用原锁和 OCI 归档。Android 包在打包机通过 `apksigner`、`aapt` 核对真实签名和包信息；最终容器无 JDK、Node 或 Go 编译器。
 
 ## 配置
 
-在 Go 和 compute 仓库分别配置 Actions Variables 与 Secrets；二者独立发版。手动输入优先于仓库 Variables，留空则使用同名大写 Variable。自动正式 Release 事件使用 Variables。
+在 Go 和 compute 仓库分别配置 Actions Variables 与 Secrets；二者独立发版。发布固定版本后，工作流将同一镜像内容推送至 GHCR、Docker Hub 和阿里云 ACR。
 
-| Run workflow 参数 | 回退 Variable | 含义与示例 |
-| --- | --- | --- |
-| `release_tag` | 无 | 已存在的正式 Release，例如 `v0.1.0`；Go 手动发布必填 |
-| `ghcr_namespace` | `GHCR_NAMESPACE` | GitHub 用户或组织，如 `your-org`；均未设置时使用当前仓库 owner 的小写名称 |
-| `dockerhub_namespace` | `DOCKERHUB_NAMESPACE` | Docker Hub 用户或组织，如 `your-team` |
-| `acr_registry` | `ACR_REGISTRY` | ACR 实例的实际仓库域名，例如 `registry.cn-hangzhou.aliyuncs.com`；不含协议、路径或末尾斜杠 |
-| `acr_namespace` | `ACR_NAMESPACE` | ACR 实例内的命名空间，如 `your-project` |
+| Actions Variable | 含义与示例 |
+| --- | --- |
+| `GHCR_NAMESPACE`（可选） | GitHub 用户或组织；默认当前仓库 owner 的小写名称，如 `mynora-dot` |
+| `DOCKERHUB_NAMESPACE` | Docker Hub 用户或组织 |
+| `ACR_REGISTRY` | ACR 控制台提供的实际仓库域名；不含协议、路径或末尾斜杠 |
+| `ACR_NAMESPACE` | ACR 实例内的命名空间，如 `mynora` |
 
-三个命名空间可不同，均填写小写名称，不填写完整镜像路径。域名应使用 ACR 控制台提供、且 GitHub runner 可访问的地址。空间及凭据缺失或参数格式错误会使发布失败，不会静默跳过某个平台。
+三个命名空间可不同，均填写小写名称，不填写完整镜像路径。ACR 域名应使用 GitHub runner 可访问的地址；配置缺失时会在构建前提示，不会静默跳过某个平台。
 
 | Actions Secret | 用途 |
 | --- | --- |
-| `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN` | 有权向所选 Docker Hub 用户/组织推送的登录账号及访问令牌 |
-| `ACR_USERNAME`、`ACR_PASSWORD` | 有权向所选 ACR 实例与命名空间推送的账号及仓库密码 |
-| `GHCR_TOKEN`、`GHCR_USERNAME`（可选） | 自定义 GHCR 凭据及其登录账号；默认使用工作流 `GITHUB_TOKEN` 与 `github.actor` |
+| `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN` | Docker Hub 登录账号及具有推送权限的访问令牌 |
+| `ACR_USERNAME`、`ACR_PASSWORD` | ACR 登录账号及仓库密码 |
+| `GHCR_TOKEN`、`GHCR_USERNAME`（可选） | 自定义 GHCR 凭据及账号；默认工作流 `GITHUB_TOKEN` 与 `github.actor` |
+| `CROSS_REPO_READ_TOKEN`（仅 Go 私有组件需要） | 读取前端、手机、TV 的私有 Release，只需选定组件仓库的 Contents: read 权限 |
 
-选择命名空间不会自动授予权限。默认 `GITHUB_TOKEN` 需要对目标 package 有写权限；跨 GitHub owner/org 发布时，按目标授权情况配置自定义 GHCR 凭据。提前在 Docker Hub/ACR 创建或授权相应命名空间与仓库。凭据只放 Secrets，不作为 Run workflow 参数、Compose 配置或构建参数。
+提前创建或授权 Docker Hub、ACR 命名空间及仓库；命名空间配置不会自动授予权限。跨 GitHub owner/org 发布按目标授权情况配置自定义 GHCR 凭据。凭据只放 Secrets；跨 GitHub 资产域名跳转时下载脚本移除 Authorization，凭据不进入构建上下文。
 
-私有组件仓库另配 CROSS_REPO_READ_TOKEN，只需目标仓库 contents:read。下载请求跨 GitHub 资产域名跳转时移除 Authorization，凭据不进入构建上下文。
+## 发布与重试
 
-## 手动发布示例
+先将代码和工作流改动推送到 GitHub，再创建指向该提交的新标签和正式 Release。各仓库版本可独立选择。首次应先发布手机、TV 和前端，确认资产齐全后发布 Go；compute 可独立发布。
 
-先将工作流改动合入默认分支，准备符合版本约定的正式 Release。在 Run workflow 中选择包含新版发布工作流的分支，填写 `release_tag` 以及需要覆盖的目标参数。也可以用 GitHub CLI（将示例仓库、版本和空间替换为实际值）：
-
-```sh
-gh workflow run platform-release.yml --repo your-org/singverse-go-backend \
-  -f release_tag=v0.1.0 \
-  -f ghcr_namespace=your-org \
-  -f dockerhub_namespace=your-team \
-  -f acr_registry=registry.cn-hangzhou.aliyuncs.com \
-  -f acr_namespace=your-project
-```
-
-这次运行只覆盖本次目的地，不修改 Variables。重新发布同一版本到新空间会复用原 Release 的组件锁和已验收 OCI 归档。更换命名空间不应修改 `VERSION` 或重打同一固定标签的内容。
-
-手动发布也会在固定版本全部成功后更新目标空间的 `latest`。选择历史 Release 会使这些空间的 `latest` 指向该历史版本；仅需使用某个稳定版本的部署应固定数字标签。
+失败后可在 Actions 对同一次运行选择 Re-run failed jobs，复用原 Release 的组件锁和归档。Re-run 始终使用原提交：修复工作流后应创建指向新提交的新版本，不能靠重跑旧记录加载新代码。已有固定镜像标签或附件如内容不同会拒绝覆盖。
 
 ## 镜像地址与部署
 
-以下 `VERSION` 代表根版本号，不含 Release tag 的 `v` 前缀：
+以下 `<VERSION>` 是 Release 标签去掉 `v` 后的版本号，例如 `v0.0.2` 对应 `0.0.2`：
 
 | 平台 | 主服务镜像 |
 | --- | --- |
@@ -64,11 +53,11 @@ gh workflow run platform-release.yml --repo your-org/singverse-go-backend \
 1. 检查部署、发布脚本及目标配置。
 2. 复用本 Release 已有 components.lock.json，或一次解析前端与两端正式包。
 3. 验证资产摘要、真实 APK 签名/包信息；保存锁清单到 Release，不覆盖已有附件。
-4. Go 检查通过后上传共同构建输入，amd64/arm64 分别构建及验收；验证离线 APK 下载和 OCI 对应运行镜像。
-5. 使用已验证 OCI 产物向三平台发布固定版本。固定 tag 已有不同内容即失败，全部通过后更新 latest。
+4. 上传共同构建输入，amd64/arm64 分别构建 OCI 归档；不执行自动测试、lint 或容器运行验收。
+5. 使用同一份 OCI 产物向三平台发布固定版本。固定 tag 已有不同内容即失败，全部通过后更新 latest。
 
-本地 make docker-build 每次获取最新两端正式包；指定 COMPONENT_LOCK 可复用既定输入。更换任何组件形成新镜像内容时，使用新的 Go 产品版本。首次 Release 顺序见[多仓库说明](../../docs/multi-repository.md)。
+本地 make docker-build 每次获取最新前端和两端正式包；指定 COMPONENT_LOCK 可复用既定输入。更换任何组件形成新镜像内容时，使用新的 Go 产品版本。首次 Release 顺序见[多仓库说明](../../docs/multi-repository.md)。
 
 检查工作流文件不代表远程 CI 或正式镜像已经发布。
 
-已验收的每架构 OCI 归档同时保存在平台 Release，重试先复用再重新验收，防止构建时间等变化使固定镜像内容不同；Actions 临时 artifact 过期后仍可恢复。发布过程中不得手动删除或替换组件锁及 OCI 归档。
+每架构 OCI 归档同时保存在平台 Release，重试校验归档摘要后复用，防止构建时间等变化使固定镜像内容不同；Actions 临时 artifact 过期后仍可恢复。发布过程中不得手动删除或替换组件锁及 OCI 归档。

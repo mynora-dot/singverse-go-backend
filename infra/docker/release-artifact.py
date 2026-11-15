@@ -4,11 +4,15 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from build_version import release_version
 
 ROOT = Path(__file__).resolve().parents[2]
 PART_SIZE = 1 << 30  # Keep each asset below GitHub's 2 GiB limit.
@@ -29,10 +33,8 @@ def context(name):
     repository = os.environ["GITHUB_REPOSITORY"]
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("Invalid GitHub repository")
-    version = (ROOT / "VERSION").read_text().strip()
+    release_version()
     tag = os.environ["RELEASE_TAG"]
-    if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version) or tag != "v" + version:
-        raise ValueError("Release tag must equal v + root VERSION")
     return repository, tag
 
 

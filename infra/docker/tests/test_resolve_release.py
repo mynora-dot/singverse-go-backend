@@ -24,18 +24,17 @@ class ResolveReleaseTests(unittest.TestCase):
     def test_empty_tag_only_checks_current_commit_without_release_api(self):
         with patch.object(resolver, 'command', return_value=self.revision) as command:
             self.assertEqual(resolver.resolve({}),
-                             dict(revision=self.revision, release_tag='', publish='false'))
+                             dict(revision=self.revision, release_tag='', version='0.0.0', publish='false'))
             command.assert_called_once_with('git', 'rev-parse', 'HEAD^{commit}')
 
-    def test_published_tag_uses_peeled_commit_and_its_version(self):
-        with patch.object(resolver, 'command', side_effect=[self.record(), '', self.revision, '1.2.3']) as command:
+    def test_published_tag_uses_peeled_commit_and_tag_version(self):
+        with patch.object(resolver, 'command', side_effect=[self.record(), '', self.revision]) as command:
             self.assertEqual(resolver.resolve(self.env()),
-                             dict(revision=self.revision, release_tag='v1.2.3', publish='true'))
+                             dict(revision=self.revision, release_tag='v1.2.3', version='1.2.3', publish='true'))
             self.assertEqual(command.call_args_list, [
                 call('gh', 'api', 'repos/owner/repo/releases/tags/v1.2.3'),
                 call('git', 'fetch', '--no-tags', '--depth=1', 'origin', 'refs/tags/v1.2.3'),
                 call('git', 'rev-parse', 'FETCH_HEAD^{commit}'),
-                call('git', 'show', self.revision + ':VERSION'),
             ])
 
     def test_invalid_tag_and_repository_fail_before_network(self):
@@ -61,10 +60,10 @@ class ResolveReleaseTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 resolver.resolve(self.env())
 
-    def test_version_mismatch_is_rejected(self):
+    def test_injected_version_must_match_tag(self):
         with patch.object(resolver, 'command', side_effect=[self.record(), '', self.revision, '1.2.4']):
             with self.assertRaisesRegex(ValueError, 'VERSION'):
-                resolver.resolve(self.env())
+                resolver.resolve(dict(self.env(), SINGVERSE_VERSION='1.2.4'))
 
     def test_invalid_revision_cannot_be_written_as_action_output(self):
         with patch.object(resolver, 'command', return_value='abc\npublish=true'):

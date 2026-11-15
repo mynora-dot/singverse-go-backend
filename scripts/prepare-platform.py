@@ -89,7 +89,7 @@ def resolve(name, component, locked=None):
             raise ValueError("Locked repository or release ID mismatch")
         release = fetch(base + "/releases/" + str(locked["releaseId"]))
         expected = locked["tag"]
-    elif name == "frontend":
+    elif component.get("tag"):
         expected = component["tag"]
         release = fetch(base + "/releases/tags/" + quote(expected, safe=""))
     else:

@@ -34,7 +34,7 @@ def audit(dockerfile, name):
             if (relative.name.startswith('.env') and relative.name != '.env.example') or relative.suffix in {
                     '.db', '.sqlite', '.sqlite3', '.key', '.pem', '.log', '.p12', '.pfx', '.tmp'}:
                 raise ValueError('actual Docker context includes a private runtime file')
-        for relative in ('VERSION', 'go.mod',
+        for relative in ('go.mod',
                          'cmd/singverse/main.go',
                          'database/migrations/sqlite/202611070001_initial_schema.sql'):
             if PurePosixPath(relative) not in relatives:

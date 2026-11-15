@@ -90,7 +90,7 @@ make docker-down
 
 ### 选择镜像仓库和项目空间
 
-正式镜像由 GitHub Actions 同步推送到 GHCR、Docker Hub、阿里云 ACR。发布者在 Run workflow 中填写 `release_tag`、`ghcr_namespace`、`dockerhub_namespace`、`acr_registry`、`acr_namespace`；目标参数留空使用 Actions Variables。完整参数和凭据见 [PUBLISHING](PUBLISHING.md)。
+正式镜像由 GitHub Actions 同步推送到 GHCR、Docker Hub、阿里云 ACR。发布者先配置 Actions Variables 与 Secrets，再发布指向新源码的正式 GitHub Release；版本直接来自标签，普通 push/PR 不触发。完整参数和凭据见 [PUBLISHING](PUBLISHING.md)。
 
 部署时把 `.env` 的 `IMAGE_PREFIX` 改为这次实际发布的前缀，只选择其中一个：
 

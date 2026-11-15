@@ -2,9 +2,13 @@
 """Resolve a published stable Release to one immutable source commit before building."""
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import subprocess
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from build_version import build_version, release_version
 
 
 def command(*args):
@@ -21,7 +25,7 @@ def commit(ref):
 def resolve(env=os.environ):
     tag = env.get('RELEASE_TAG', '')
     if not tag:
-        return dict(revision=commit('HEAD'), release_tag='', publish='false')
+        return dict(revision=commit('HEAD'), release_tag='', version=build_version(env), publish='false')
     if not re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag):
         raise ValueError('RELEASE_TAG must be a stable vMAJOR.MINOR.PATCH tag')
     repository = env.get('GITHUB_REPOSITORY', '')
@@ -34,10 +38,8 @@ def resolve(env=os.environ):
     # Resolve the exact tag, including annotated tags, never the dispatch branch or target_commitish.
     command('git', 'fetch', '--no-tags', '--depth=1', 'origin', 'refs/tags/' + tag)
     revision = commit('FETCH_HEAD')
-    version = command('git', 'show', revision + ':VERSION')
-    if tag != 'v' + version:
-        raise ValueError('Release tag must equal v + VERSION at the tagged commit')
-    return dict(revision=revision, release_tag=tag, publish='true')
+    version = release_version(env)
+    return dict(revision=revision, release_tag=tag, version=version, publish="true")
 
 
 def main():

@@ -108,7 +108,7 @@ Flutter 实现按 `lib/app`、`lib/core` 和 `features/library`、`features/play
 
 ## NAS 管理前端与服务端解耦
 
-网页统一在singverse-frontend工程：party/index.html是亲友入口，admin/index.html加载Vue/Element Plus管理界面，Vue源码位于src/admin。Vite以多页面方式一次构建管理、亲友和下载三个入口，源码不放进Go资源目录。Node/npm只参与开发和构建，锁文件可复现依赖；前端仓库的 `dist/`是可单独交付的静态产物。Go 构建准备阶段复制整个 dist 到被忽略的 `internal/web/dist` 并以 `go:embed` 嵌入；缺少任一入口时构建失败。前端仓库的 `make frontend-build`、`make frontend-check` 与 CI 不依赖 Go 或数据库；Go 用 components.json 固定前端 Release。
+网页统一在singverse-frontend工程：party/index.html是亲友入口，admin/index.html加载Vue/Element Plus管理界面，Vue源码位于src/admin。Vite以多页面方式一次构建管理、亲友和下载三个入口，源码不放进Go资源目录。Node/npm只参与开发和构建，锁文件可复现依赖；前端仓库的 `dist/`是可单独交付的静态产物。Go 构建准备阶段复制整个 dist 到被忽略的 `internal/web/dist` 并以 `go:embed` 嵌入；缺少任一入口时构建失败。前端仓库的 `make frontend-build`、`make frontend-check` 与 CI 不依赖 Go 或数据库；Go 从 components.json 指定的仓库解析最新正式前端 Release，并保存组件锁。
 
 ```mermaid
 flowchart LR
@@ -127,7 +127,7 @@ Go 保持[前端托管契约](../contracts/frontend-hosting.md)与同源接口�
 
 亲友H5与NAS管理页面使用统一前端工程构建，再由Go托管，均随原生二进制更新，生产无Node运行时、CDN或微信JS-SDK；Docker业务交付只使用内置完整前端的Go容器，compute按需部署。业务 API 由 Go 提供。亲友微信扫一扫普通NAS URL的入口已确定，小程序已取消。二维码、配对与会话权限由业务服务管理，微信导航和生命周期仍须真机验证。
 
-SQLite默认，MySQL 由显式驱动配置选择，切换不迁移数据；Python不引入第二套业务表。Flutter/TV/管理前端独立构建，两个网页入口随 Go 验证，Python独立虚拟环境与锁定依赖；六个CI工作流为singverse-frontend、singverse-mobile、singverse-tv、singverse-go-backend、singverse-backend、singverse-docker。TV当前minSdk23，Android5/API21与音频链路仍待验证。
+SQLite默认，MySQL 由显式驱动配置选择，切换不迁移数据；Python不引入第二套业务表。Flutter/TV/管理前端独立构建，Python使用独立虚拟环境与锁定依赖。五个项目仅在正式 GitHub Release 发布后运行构建和上传工作流，不运行自动测试、lint 或独立 verify。TV minSdk21，Android5/API21与音频链路仍需设备验证。
 
 计算节点开发入口见[开发指南](development.md)与[节点README](https://github.com/mynora-dot/singverse-compute/blob/main/README.md)；产品行为以现有管理端与 API 契约为准，历史原型已删除。
 
@@ -164,7 +164,7 @@ Go 的 ai 模块负责共享模型/搜索适配、配置、加密凭据和功能
 
 ## Go 运行与交付
 
-Go 主服务用显式依赖组装、有界 worker、持久任务状态、context 取消与优雅退出；业务 SQL 嵌入模块文件，sqlx 提供结构体/通用结果映射，跨模块传递持有同一事务的 `store.DBTX`。日志为结构化 slog JSON、HTTP 带请求 ID；可选诊断监听器仅回环，不暴露到公开 API。版本统一从根 `VERSION` 构建注入。默认容器不包含 JVM/Node/Go 编译器，媒体工具只在 compute。
+Go 主服务用显式依赖组装、有界 worker、持久任务状态、context 取消与优雅退出；业务 SQL 嵌入模块文件，sqlx 提供结构体/通用结果映射，跨模块传递持有同一事务的 `store.DBTX`。日志为结构化 slog JSON、HTTP 带请求 ID；可选诊断监听器仅回环，不暴露到公开 API。正式版本统一从 GitHub Release 标签通过 `SINGVERSE_VERSION` 构建注入，本地开发默认 `0.0.0`。默认容器不包含 JVM/Node/Go 编译器，媒体工具只在 compute。
 
 既有 Go 部署继续使用 `singverse-go-app` 项目及原命名卷；从 Java 首次切换时与旧 `singverse-app` 完全隔离，不迁移旧账号，也不承诺 Go 写入后数据库可退回 Java。旧镜像/旧数据回退见 [迁移说明](go-migration.md)，实际验证见 [Go 验证](go-migration-verification.md)。
 

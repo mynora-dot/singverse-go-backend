@@ -17,7 +17,7 @@ spec.loader.exec_module(release)
 
 class ReleaseTests(unittest.TestCase):
     def env(self):
-        return dict(RELEASE_TAG='v' + (ROOT / 'VERSION').read_text().strip(), GITHUB_REPOSITORY_OWNER='mynora-dot',
+        return dict(RELEASE_TAG='v1.2.3', GITHUB_REPOSITORY_OWNER='mynora-dot',
                     DOCKERHUB_NAMESPACE='custom-hub', ACR_REGISTRY='registry.example.com', ACR_NAMESPACE='custom-acr',
                     GHCR_TOKEN='test', DOCKERHUB_USERNAME='test', DOCKERHUB_TOKEN='test',
                     ACR_USERNAME='test', ACR_PASSWORD='test')
@@ -25,7 +25,7 @@ class ReleaseTests(unittest.TestCase):
     def test_namespaces_are_independent_configuration(self):
         env = self.env()
         version, prefixes = release.config(env)
-        self.assertEqual(version, (ROOT / 'VERSION').read_text().strip())
+        self.assertEqual(version, '1.2.3')
         self.assertEqual(prefixes, ['ghcr.io/mynora-dot', 'docker.io/custom-hub', 'registry.example.com/custom-acr'])
         env['GITHUB_REPOSITORY_OWNER'] = 'MyNora-Dot'
         self.assertEqual(release.config(env)[1][0], 'ghcr.io/mynora-dot')
@@ -41,7 +41,7 @@ class ReleaseTests(unittest.TestCase):
                 release.config(env)
 
     def test_release_tag_and_registry_validation(self):
-        for key, value in [('RELEASE_TAG', 'v9.0.0'), ('ACR_REGISTRY', 'https://registry.example.com'),
+        for key, value in [('RELEASE_TAG', 'v9.0.0-rc.1'), ('ACR_REGISTRY', 'https://registry.example.com'),
                            ('DOCKERHUB_NAMESPACE', 'UpperCase'), ('ACR_NAMESPACE', 'a/b')]:
             env = self.env()
             env[key] = value

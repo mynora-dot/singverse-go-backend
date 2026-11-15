@@ -6,4 +6,5 @@ services:
       dockerfile: infra/docker/build/app.Dockerfile
       target: singverse
       args:
+        SINGVERSE_VERSION: '${SINGVERSE_VERSION:-0.0.0}'
         SOURCE_REVISION: '${SINGVERSE_SOURCE_REVISION:-local}'

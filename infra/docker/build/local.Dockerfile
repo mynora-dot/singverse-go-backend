@@ -4,10 +4,11 @@ ARG NGINX_IMAGE=nginx:stable-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e70430
 
 # The frontend checkout is selected explicitly through a named build context.
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS frontend-build
+ARG SINGVERSE_VERSION=0.0.0
 WORKDIR /frontend
 COPY --from=frontend-source /package.json /package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
-COPY --from=frontend-source /VERSION /tsconfig.json /vite.config.ts ./
+COPY --from=frontend-source /tsconfig.json /vite.config.ts ./
 COPY --from=frontend-source /src/ ./src/
 COPY --from=frontend-source /tests/ ./tests/
 COPY --from=frontend-source /admin/ ./admin/
@@ -21,16 +22,16 @@ ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 ARG TARGETOS
 ARG TARGETARCH
+ARG SINGVERSE_VERSION=0.0.0
 WORKDIR /workspace
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
-COPY VERSION ./
 COPY --from=frontend-build /frontend/dist/ ./internal/web/dist/
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
-    -ldflags "-s -w -X main.version=$(cat VERSION)" -o /out/singverse ./cmd/singverse
+    -ldflags "-s -w -X main.version=${SINGVERSE_VERSION}" -o /out/singverse ./cmd/singverse
 RUN set -eu; case "$TARGETARCH" in \
     amd64) asset=linux-amd64; digest=f855e99a0f0a81322014bf686b1cb820d2b4d8074e4eadafd64b851b80ecb15a ;; \
     arm64) asset=linux-arm64; digest=42de2bf27989192b9ca8db4cfaa0a9d6b4aee154a03abef30239b7186b1baf82 ;; \
@@ -50,7 +51,9 @@ COPY database/migrations/ ./database/migrations/
 COPY --from=client-releases / /opt/singverse/releases/
 ENV DBMATE_BIN=/usr/local/bin/dbmate SINGVERSE_CLIENT_RELEASE_DIRECTORY=/opt/singverse/releases
 ARG SOURCE_REVISION=local
-LABEL org.opencontainers.image.title="SingVerse Local" org.opencontainers.image.revision="${SOURCE_REVISION}"
+ARG SINGVERSE_VERSION=0.0.0
+LABEL org.opencontainers.image.title="SingVerse Local" org.opencontainers.image.revision="${SOURCE_REVISION}" \
+    org.opencontainers.image.version="${SINGVERSE_VERSION}"
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGTERM

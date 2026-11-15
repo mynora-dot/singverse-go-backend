@@ -2,7 +2,7 @@
 
 家庭自托管 KTV 的唯一业务主服务。Go / Gin / sqlx，默认 SQLite，可显式选择 MySQL；Python 计算节点可选。源码直接位于本仓库根目录。
 
-本仓库维护业务 API、数据库迁移、系统契约及组合部署。管理页面、亲友 H5 和客户端下载页来自独立前端仓库的完整 dist，由 Go 嵌入托管。产品版本唯一来源为根 `VERSION`。
+本仓库维护业务 API、数据库迁移、系统契约及组合部署。管理页面、亲友 H5 和客户端下载页来自独立前端仓库的完整 dist，由 Go 嵌入托管。正式产品版本取自 GitHub Release 标签（如 `v0.0.2`），Actions 自动注入 `SINGVERSE_VERSION=0.0.2`；本地开发默认 `0.0.0`。
 
 同一 NAS 的后台、手机和电视共用一份收藏，由 Go 持久保存。后台入口为「曲库 → 收藏」，提供搜索、筛选、排序、添加及当前页批量取消。管理员/手机与 TV 设备凭证分别访问共享服务；不导入旧客户端收藏，不持久化客户端收藏副本，练唱记录及作品保持本地存储。接口、权限和刷新语义见 [NAS 共享收藏](contracts/favorites.md)。
 
@@ -19,7 +19,7 @@ make go-backend-build
 make go-backend-run
 ```
 
-默认按 `components.json` 下载固定前端 Release。首次拆分尚未发布前端时，可在前端仓库构建后显式传入完整 dist；三个入口均为必需：
+默认从 `components.json` 指定的仓库下载最新正式前端 Release。首次拆分尚未发布前端时，可在前端仓库构建后显式传入完整 dist；三个入口均为必需：
 
 ```sh
 make go-backend-test FRONTEND_DIST=/absolute/path/to/frontend/dist
@@ -70,7 +70,7 @@ make docker-build COMPONENT_LOCK=/absolute/path/to/components.lock.json
 
 业务镜像使用 `SINGVERSE_VERSION`，计算镜像使用独立的 `COMPUTE_VERSION`。默认只启动 Go；compute 仍通过 profile 显式启用。项目名 `singverse-go-app` 及现有命名卷保留，源码路线仅构建本仓库的 Go 镜像。
 
-正式镜像同步发布到 GitHub GHCR、Docker Hub、阿里云 ACR。`platform-release` 支持 Run workflow 参数 `release_tag`、`ghcr_namespace`、`dockerhub_namespace`、`acr_registry`、`acr_namespace`，选择正式版本和本次目标空间；目标参数留空使用仓库 Variables。部署 `.env` 的 `IMAGE_PREFIX` 对应所选平台的域名/命名空间，详细凭据与镜像地址见[发布配置](infra/docker/PUBLISHING.md)，切换步骤见[运维说明](infra/docker/OPERATIONS.md)。
+正式镜像同步发布到 GitHub GHCR、Docker Hub、阿里云 ACR。`platform-release` 仅在发布正式 GitHub Release 后运行，版本来自标签，目标空间来自仓库 Variables；普通 push/PR 不触发，不运行测试、lint 或独立 verify。部署 `.env` 的 `IMAGE_PREFIX` 对应所选平台的域名/命名空间，详细凭据与镜像地址见[发布配置](infra/docker/PUBLISHING.md)，切换步骤见[运维说明](infra/docker/OPERATIONS.md)。
 
 ## 客户端分发
 

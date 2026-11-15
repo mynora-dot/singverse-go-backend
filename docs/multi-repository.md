@@ -20,17 +20,17 @@ Go 仓库为 contracts 权威来源；其他仓库保留必要快照，并用 SO
 
 ## 版本与依赖
 
-每仓根 VERSION 独立递增，初始 0.1.0，正式 tag 必须为 v + VERSION。Android 版本码为 major × 1000000 + minor × 1000 + patch；minor/patch 为 0–999，结果必须为正数且不超过 2100000000，并高于上一正式包。两端发布通用 APK，版本不由 CI run_number 决定。
+各仓通过正式 GitHub Release 标签独立递增版本，例如 v0.0.2；Actions 自动注入 SINGVERSE_VERSION，不维护 VERSION 文件。本地开发默认 0.0.0。Android 版本码为 major × 1000000 + minor × 1000 + patch；minor/patch 为 0–999，结果必须为正数且不超过 2100000000，并高于上一正式包。两端发布通用 APK，版本不由 CI run_number 决定。
 
-Go 的 components.json 固定前端 tag，手机和 TV 在每次新平台打包时解析各自最新正式 Release。构建先把两端 release ID、asset ID、摘要和元数据固定为组件锁清单。不同架构共用这份输入；正式重试复用 Release 附件 components.lock.json，同版本不替换为另一组内容。
+Go 的 components.json 指定三个组件仓库；前端、手机和 TV 在每次新平台打包时解析各自最新正式 Release（也可为组件显式设置 tag）。构建先把两端 release ID、asset ID、摘要和元数据固定为组件锁清单。不同架构共用这份输入；正式重试复用 Release 附件 components.lock.json，同版本不替换为另一组内容。
 
 ## 首次发布顺序
 
 1. 在手机、TV 仓库按各自 README 配置长期签名 Secrets，安全备份原始密钥。
 2. 发布两端正式 Release，检查签名 APK、release.json 和 SHA256SUMS。
 3. 发布前端完整静态包，确认包含 admin、party、downloads。
-4. 确认 Go components.json 指向该前端 tag，配置跨仓只读权限与三平台镜像发布 Variables/Secrets，再发布 Go。正式 Release 自动使用 Variables；手动 Run workflow 可用 `release_tag` 选择已有正式版，并用 `ghcr_namespace`、`dockerhub_namespace`、`acr_registry`、`acr_namespace` 覆盖本次目标空间，见[发布参数](../infra/docker/PUBLISHING.md)。
-5. compute 配置其自身镜像发布环境后独立发布，手动发布采用相同目标参数；部署显式选择 COMPUTE_VERSION。同机 Compose 共用 IMAGE_PREFIX，应把主服务和 compute 发布到对应平台的同一空间。
+4. 配置 Go 的跨仓只读权限与三平台镜像发布 Variables/Secrets，再发布指向最新源码的正式 Release。Actions 自动使用 Variables，直接构建和上传，不运行自动测试、lint 或独立 verify，见[发布参数](../infra/docker/PUBLISHING.md)。
+5. compute 配置其自身镜像发布环境后独立发布正式 Release；部署显式选择 COMPUTE_VERSION。同机 Compose 共用 IMAGE_PREFIX，应把主服务和 compute 发布到对应平台的同一空间。
 
 当前没有既有正式 APK；旧 debug 安装的证书可能不同。覆盖升级只支持相同包名与受信签名，更新功能不会自动卸载或清除用户数据。
 
