@@ -27,15 +27,30 @@ class PlatformAssetsTests(unittest.TestCase):
             assets.validate_release(self.release(), "v0.2.0")
 
     def test_latest_resolution_and_retry_use_release_id(self):
-        info = {"repository": "owner/mobile"}
-        with patch.object(assets, "fetch", return_value=self.release()) as request:
-            assets.resolve("mobile", info)
-            self.assertTrue(request.call_args.args[0].endswith("/releases/latest"))
-            locked = {"repository": "owner/mobile", "releaseId": 42, "tag": "v0.1.0"}
-            assets.resolve("mobile", info, locked)
-            self.assertTrue(request.call_args.args[0].endswith("/releases/42"))
-            with self.assertRaises(ValueError):
-                assets.resolve("mobile", {"repository": "other/mobile"}, locked)
+        for name in ("frontend", "mobile", "tv"):
+            with self.subTest(component=name):
+                info = {"repository": "owner/" + name}
+                with patch.object(assets, "fetch", return_value=self.release()) as request:
+                    self.assertEqual(assets.resolve(name, info)["tag_name"], "v0.1.0")
+                    self.assertTrue(request.call_args.args[0].endswith("/releases/latest"))
+                    locked = {"repository": info["repository"], "releaseId": 42, "tag": "v0.1.0"}
+                    self.assertEqual(assets.resolve(name, info, locked)["id"], 42)
+                    self.assertTrue(request.call_args.args[0].endswith("/releases/42"))
+                    with self.assertRaises(ValueError):
+                        assets.resolve(name, {"repository": "other/" + name}, locked)
+
+    def test_explicit_tag_and_retry_lock_must_agree_for_every_component(self):
+        for name in ("frontend", "mobile", "tv"):
+            with self.subTest(component=name):
+                info = {"repository": "owner/" + name, "tag": "v0.1.0"}
+                locked = {"repository": info["repository"], "releaseId": 42, "tag": "v0.1.0"}
+                with patch.object(assets, "fetch", return_value=self.release()) as request:
+                    assets.resolve(name, info)
+                    self.assertTrue(request.call_args.args[0].endswith("/releases/tags/v0.1.0"))
+                    assets.resolve(name, info, locked)
+                    self.assertTrue(request.call_args.args[0].endswith("/releases/42"))
+                    with self.assertRaises(ValueError):
+                        assets.resolve(name, dict(info, tag="v0.2.0"), locked)
 
     def test_missing_duplicate_and_replaced_assets(self):
         for items in ([], [self.release()["assets"][0]] * 2):
@@ -136,7 +151,6 @@ class PlatformAssetsTests(unittest.TestCase):
             archive = root / "frontend.tar.gz"
             self.tar(archive, [(name + "/index.html", name, False) for name in ("admin", "party", "downloads")])
             config = {name: {"repository": "owner/" + name} for name in ("frontend", "mobile", "tv")}
-            config["frontend"]["tag"] = "v0.1.0"
             releases, payloads, manifests = {}, {}, {}
             for index, name in enumerate(("frontend", "mobile", "tv"), 1):
                 if name == "frontend":
@@ -168,8 +182,8 @@ class PlatformAssetsTests(unittest.TestCase):
                 return {"size": len(value), "sha256": hashlib.sha256(value).hexdigest()}
             with patch.object(assets, "ROOT", root), patch.object(assets, "fetch", side_effect=fetch), patch.object(assets, "verify_apk", side_effect=lambda directory, name, *args: manifests[name]):
                 first = assets.prepare(config, root / ".build/first")
-                self.assertEqual(sum(url.endswith("/releases/latest") for url in requests), 2)
-                self.assertEqual(sum("/releases/tags/" in url for url in requests), 1)
+                self.assertEqual(sum(url.endswith("/releases/latest") for url in requests), 3)
+                self.assertFalse(any("/releases/tags/" in url for url in requests))
                 requests.clear()
                 retry = assets.prepare(config, root / ".build/retry", first)
                 self.assertEqual(retry, first)

@@ -102,8 +102,8 @@ def resolve(name, component, locked=None):
     validate_release(release, expected)
     if locked and release["id"] != locked["releaseId"]:
         raise ValueError("Locked release ID changed")
-    if name == "frontend" and release["tag_name"] != component["tag"]:
-        raise ValueError("Frontend lock differs from components.json")
+    if component.get("tag") and release["tag_name"] != component["tag"]:
+        raise ValueError("Locked release tag differs from components.json: " + name)
     return release
 
 def asset(release, filename):
