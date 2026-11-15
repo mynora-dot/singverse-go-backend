@@ -44,7 +44,11 @@ Release 标签使用 `vMAJOR.MINOR.PATCH`，如 `v0.0.2`。Actions 自动注入 
 | Docker Hub | `docker.io/<dockerhub_namespace>/singverse:<VERSION>` |
 | 阿里云 ACR | `<acr_registry>/<acr_namespace>/singverse:<VERSION>` |
 
-主服务包含 `amd64`、`arm64`，同时发布 `<VERSION>-amd64`、`<VERSION>-arm64` 和多架构 `<VERSION>` 标签；全部固定版本成功后更新 `latest`。compute 仓库独立发布 `singverse-compute:<COMPUTE_VERSION>-<runtime>`（如 `0.1.0-base`）及对应架构标签、`latest-<runtime>`。
+主服务只发布数字版本 `<VERSION>` 和 `latest` 两类标签，两者都通过镜像清单包含 `linux/amd64`、`linux/arm64`。发布时复制完整索引及其引用的镜像层，不再额外发布架构标签；三家固定版本全部成功后更新 `latest`。已有历史标签不会自动删除，数字版本会随发布累积。
+
+compute 仓库独立发布 cuda、rocm、openvino、rknn 四种运行库，每种仅有 `<COMPUTE_VERSION>-<runtime>` 与 `latest-<runtime>`，一个版本共 8 个标签，不额外发布架构标签或 CPU 镜像。CPU 是四种加速镜像内置的降级环境；Mac ARM64 原生安装包和 SHA-256 文件附加到 compute 的同一 Release，不占 Docker 标签。
+
+镜像发布会实时输出目标标签及 Skopeo 的镜像层进度，每 30 秒报告仍在上传的目标与耗时。远端标签查询限时 2 分钟，每次复制限时 30 分钟，期间最多重试 2 次；发布 job 总限时 120 分钟。超时即停止，重跑同一 Release 会复用相同摘要的已有标签及归档。
 
 部署者在 `.env` 设置 `IMAGE_PREFIX=<仓库域名>/<命名空间>`，并固定 `SINGVERSE_VERSION` 和 `COMPUTE_VERSION`。同一 Compose 的两类镜像共用 `IMAGE_PREFIX`，因此启用同机 compute 时应把两个仓库发布到对应平台的同一命名空间；独立计算节点可在自己的 `.env` 选择其他前缀。私有镜像需在部署主机执行 `docker login <仓库域名>`。镜像命名空间不改变 Compose 项目名、服务名或数据卷。具体部署和切换步骤见 [README](README.md) 与 [OPERATIONS](OPERATIONS.md)。
 

@@ -294,7 +294,7 @@ func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[s
 	if err != nil {
 		return nil, err
 	}
-	if err = spec.validateBackend(backend); err != nil {
+	if err = spec.validateBackend(backend, kind); err != nil {
 		return nil, err
 	}
 	if recognitionKind(kind) && !spec.legacy() {

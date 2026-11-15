@@ -77,15 +77,18 @@ func (r audioRecipe) view() map[string]any {
 	}
 	return v
 }
-func (r audioRecipe) validateBackend(backend string) error {
+func (r audioRecipe) validateBackend(backend, kind string) error {
 	if !oneOf(backend, "", "auto", "cpu", "cuda", "rocm", "mps", "openvino", "openvino-cpu", "rknn", "tensorrt", "migraphx", "coreml", "directml", "mlx") {
 		return fail(400, "未知推理后端")
 	}
 	if r.profile == "DSP_FAST" && !oneOf(backend, "", "auto", "cpu") {
 		return fail(400, "极速档使用 CPU，无需选择 GPU")
 	}
+	if oneOf(kind, "ANALYZE", "SEPARATE") && r.profile != "DSP_FAST" && r.source == "" && oneOf(backend, "cpu", "openvino-cpu") {
+		return fail(400, "CPU 仅用于加速失败后的自动降级，请选择自动或加速设备")
+	}
 	if r.profile == "AI_CLEAN" && oneOf(backend, "rocm", "mps") {
-		return fail(400, "轻量模型请选择对应 ONNX 后端或 CPU")
+		return fail(400, "轻量模型请选择自动或对应的 ONNX/MLX 加速后端")
 	}
 	return nil
 }

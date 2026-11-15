@@ -312,7 +312,7 @@ func TestAudioComputeLifecycleVerifiedArtifactAndGrantRevocation(t *testing.T) {
 	if out.Code != 404 {
 		t.Fatal("completed grant remained valid", out.Code)
 	}
-	job, err = s.SubmitAudio(t.Context(), fixture.song, "SEPARATE", "cpu", nil)
+	job, err = s.SubmitAudio(t.Context(), fixture.song, "SEPARATE", "auto", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

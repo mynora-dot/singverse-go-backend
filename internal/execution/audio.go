@@ -38,7 +38,7 @@ func (s *Service) submitAudio(ctx context.Context, songID, kind, backend string,
 	if backend == "auto" {
 		backend = ""
 	}
-	if err = spec.validateBackend(backend); err != nil {
+	if err = spec.validateBackend(backend, kind); err != nil {
 		return nil, err
 	}
 	if !oneOf(kind, "PROBE", "FAST", "ANALYZE", "SEPARATE") {

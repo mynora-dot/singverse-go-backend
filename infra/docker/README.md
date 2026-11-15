@@ -16,7 +16,7 @@ make docker-local-logs
 make docker-local-down
 ```
 
-`docker-local-up` 从所选前端、Go 和计算节点源码构建两个本地镜像，等待服务健康后返回。前端的 admin、party、downloads 三个入口由 Go 同源托管，计算节点通过内部网络连接 Go，认证文件只在挂载目录共享。目录初始化服务以 root 创建并设置运行目录权限，业务服务均以 UID/GID 10001 运行。默认采用适合 ARM64/AMD64 的 base 计算运行库；模型权重由管理员按需下载或导入。
+`docker-local-up` 从所选前端、Go 和计算节点源码构建两个本地镜像，等待服务健康后返回。前端的 admin、party、downloads 三个入口由 Go 同源托管，计算节点通过内部网络连接 Go，认证文件只在挂载目录共享。目录初始化服务以 root 创建并设置运行目录权限，业务服务均以 UID/GID 10001 运行。`COMPUTE_RUNTIME` 默认 cuda，部署前按硬件选择 cuda、rocm、openvino（AMD64）或 rknn（ARM64）；均内置 CPU 降级环境，模型由管理员按需安装。Apple Silicon Mac 使用 compute Release 的原生安装包。
 
 - 管理入口：`http://127.0.0.1:18080/admin/`，初始账号 `admin/admin`。
 - 亲友入口：`http://127.0.0.1:18080/party/`。
@@ -102,7 +102,7 @@ make docker-down
 
 前缀不含镜像名、tag 或末尾斜杠。主服务最终地址为 `${IMAGE_PREFIX}/singverse:${SINGVERSE_VERSION}`，可选计算节点为 `${IMAGE_PREFIX}/singverse-compute:${COMPUTE_VERSION}-${COMPUTE_RUNTIME}`。同机部署两类镜像时，发布者应将它们放入对应平台的同一空间；独立节点可单独配置前缀。
 
-生产部署填写已发布的固定数字版本，例如 `SINGVERSE_VERSION=0.1.0`、`COMPUTE_VERSION=0.1.0`，两者按各自实际版本选择；GitHub Release tag 的 `v` 不写入镜像版本。`COMPUTE_RUNTIME=base` 默认适配 amd64/arm64。示例版本不表示远端已有可拉取产物。
+生产部署填写已发布的固定数字版本，例如 `SINGVERSE_VERSION=0.1.0`、`COMPUTE_VERSION=0.1.0`，两者按各自实际版本选择；GitHub Release tag 的 `v` 不写入镜像版本。`COMPUTE_RUNTIME` 只选择 cuda、rocm、openvino 或 rknn，并按[硬件指南](GPU.md)追加设备覆盖。示例版本不表示远端已有可拉取产物。
 
 私有仓库先在部署主机执行 `docker login <仓库域名>`，再运行 `make docker-pull docker-image-up`。切换镜像仓库只修改前缀，保持 `singverse-go-app` 项目名及现有卷；先核对相同固定版本的 digest，详见 [运维指南](OPERATIONS.md)。
 

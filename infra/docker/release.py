@@ -11,6 +11,7 @@ import subprocess
 import shutil
 import tarfile
 import tempfile
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 from build_version import release_version
@@ -34,18 +35,49 @@ def config(env=os.environ):
     return version, ['ghcr.io/' + ghcr, 'docker.io/' + hub, host + '/' + acr]
 
 
-def run(*args, input=None):
-    return subprocess.check_output(args, input=input, text=True).strip()
+COPY_TIMEOUT_SECONDS = 30 * 60
+INSPECT_TIMEOUT_SECONDS = 120
+PROGRESS_INTERVAL_SECONDS = 30
+
+
+def copy_image(source, destination):
+    """Stream layer progress and bound retries and stalled registry requests."""
+    reference = destination.removeprefix('docker://')
+    command = ['skopeo', '--command-timeout', f'{COPY_TIMEOUT_SECONDS}s',
+               'copy', '--retry-times', '2', '--all', '--preserve-digests', source, destination]
+    print('Copying image to: ' + reference, flush=True)
+    started = time.monotonic()
+    with subprocess.Popen(command) as process:
+        while True:
+            remaining = COPY_TIMEOUT_SECONDS + 5 - (time.monotonic() - started)
+            if remaining <= 0:
+                process.kill()
+                process.wait()
+                raise RuntimeError(f'Image copy timed out after {COPY_TIMEOUT_SECONDS}s: {reference}')
+            try:
+                status = process.wait(timeout=min(PROGRESS_INTERVAL_SECONDS, remaining))
+            except subprocess.TimeoutExpired:
+                print(f'Still copying {reference} ({time.monotonic() - started:.0f}s elapsed)', flush=True)
+                continue
+            if status:
+                raise subprocess.CalledProcessError(status, command)
+            break
+    print(f'Copied {reference} in {time.monotonic() - started:.0f}s', flush=True)
 
 
 def remote_digest(reference):
-    result = subprocess.run(['skopeo', 'inspect', '--raw', 'docker://' + reference],
-                            capture_output=True, text=True)
+    print('Inspecting remote tag: ' + reference, flush=True)
+    try:
+        result = subprocess.run(['skopeo', '--command-timeout', f'{INSPECT_TIMEOUT_SECONDS}s',
+                                 'inspect', '--raw', 'docker://' + reference],
+                                capture_output=True, text=True, timeout=INSPECT_TIMEOUT_SECONDS + 5)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(f'Registry inspection timed out after {INSPECT_TIMEOUT_SECONDS}s: {reference}') from error
     if result.returncode == 0:
         return 'sha256:' + hashlib.sha256(result.stdout.encode()).hexdigest()
     # Only an explicitly missing manifest is safe to create. Auth/network errors fail.
     if not any(code in result.stderr.lower() for code in ('manifest unknown', 'manifest_unknown', 'name unknown', 'name_unknown')):
-        raise RuntimeError('Cannot inspect remote image; refusing to assume it is absent')
+        raise RuntimeError(f'Cannot inspect remote image {reference}: {result.stderr.strip()}; refusing to assume it is absent')
     return None
 
 
@@ -54,10 +86,12 @@ def ensure(reference, digest, publish):
     if existing is not None:
         if existing != digest:
             raise ValueError('Immutable image already exists with different content: ' + reference)
+        print('Reusing identical immutable tag: ' + reference, flush=True)
         return
     publish()
     if remote_digest(reference) != digest:
         raise ValueError('Published image digest mismatch: ' + reference)
+    print('Verified immutable tag: ' + reference, flush=True)
 
 
 def manifest(entries):
@@ -99,22 +133,20 @@ def layout(directory, variant, raw, destination):
 def publish(directory):
     version, prefixes = config()
     records = {}
-    # Publish architecture images first. Each artifact was built and tested once.
+    # Read both preserved architecture archives; publish only the combined index.
     for variant, arches in VARIANTS.items():
         image = 'singverse' if variant == 'app' else 'singverse-compute'
         suffix = '' if variant == 'app' else '-' + variant
         entries = []
         for arch in arches:
             archive = directory / f'{variant}-{arch}' / 'image.tar'
-            raw = subprocess.check_output(['skopeo', 'inspect', '--raw', 'oci-archive:' + str(archive)])
+            print('Reading OCI archive: ' + str(archive), flush=True)
+            raw = subprocess.check_output(['skopeo', 'inspect', '--raw', 'oci-archive:' + str(archive)],
+                                          timeout=COPY_TIMEOUT_SECONDS)
             digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
             descriptor = {'mediaType': json.loads(raw)['mediaType'], 'digest': digest, 'size': len(raw),
                           'platform': {'os': 'linux', 'architecture': arch}}
             entries.append(descriptor)
-            for prefix in prefixes:
-                ref = f'{prefix}/{image}:{version}{suffix}-{arch}'
-                ensure(ref, digest, lambda ref=ref, archive=archive: run('skopeo', 'copy', '--all', '--preserve-digests',
-                       'oci-archive:' + str(archive), 'docker://' + ref))
         records[(image, suffix)] = (variant, manifest(entries))
     # Copy deterministic OCI indexes, keeping bytes and digests identical at all destinations.
     for (image, suffix), (variant, raw) in records.items():
@@ -124,12 +156,12 @@ def publish(directory):
             layout(directory, variant, raw, destination)
             for prefix in prefixes:
                 ref = f'{prefix}/{image}:{version}{suffix}'
-                ensure(ref, digest, lambda ref=ref: run('skopeo', 'copy', '--all', '--preserve-digests',
+                ensure(ref, digest, lambda ref=ref: copy_image(
                        'oci:' + str(destination) + ':release', 'docker://' + ref))
     # No latest tag is changed until every immutable version passed validation.
     for (image, suffix), (_, raw) in records.items():
         for prefix in prefixes:
-            run('skopeo', 'copy', '--all', '--preserve-digests',
+            copy_image(
                 f'docker://{prefix}/{image}:{version}{suffix}', f'docker://{prefix}/{image}:latest{suffix}')
 
 

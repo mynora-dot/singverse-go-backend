@@ -87,5 +87,5 @@ def run(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--backend-image', default='singverse:local')
-    parser.add_argument('--compute-image', default='singverse-compute:local-base')
+    parser.add_argument('--compute-image', default='singverse-compute:local-cuda')
     run(parser.parse_args())

@@ -34,7 +34,7 @@ services:
     stop_grace_period: 25s
   singverse-compute:
     profiles: [compute]
-    image: '${IMAGE_PREFIX:-ghcr.io/mynora-dot}/singverse-compute:${COMPUTE_VERSION:-latest}-${COMPUTE_RUNTIME:-base}'
+    image: '${IMAGE_PREFIX:-ghcr.io/mynora-dot}/singverse-compute:${COMPUTE_VERSION:-latest}-${COMPUTE_RUNTIME:-cuda}'
     environment:
       COMPUTE_AUTH_TOKEN_FILE: /run/singverse-compute/token
       COMPUTE_LAN_PAIRING_ENABLED: '${COMPUTE_LAN_PAIRING_ENABLED:-true}'

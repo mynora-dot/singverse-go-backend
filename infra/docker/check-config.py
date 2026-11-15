@@ -7,7 +7,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / 'infra/docker/compose'
-RUNTIMES = ('base', 'cpu', 'uvr', 'cuda', 'rocm', 'rocm-native', 'openvino', 'rknn')
+RUNTIMES = ('cuda', 'rocm', 'openvino', 'rknn')
 
 
 def render(files, **values):
@@ -66,7 +66,7 @@ def main():
         overlay = 'compose.compute-build.yaml' if standalone else 'compose.build.yaml'
         for source in ((False,) if standalone else (False, True)):
             for runtime in RUNTIMES:
-                hardware = {'cuda': 'nvidia', 'rocm': 'rocm', 'rocm-native': 'rocm', 'openvino': 'dri', 'rknn': 'rknn'}.get(runtime)
+                hardware = {'cuda': 'nvidia', 'rocm': 'rocm', 'openvino': 'dri', 'rknn': 'rknn'}[runtime]
                 files = [base] + ([overlay] if source else []) + ([f'compose.{hardware}.yaml'] if hardware else [])
                 config = render(files, COMPUTE_RUNTIME=runtime, COMPOSE_PROFILES='compute')
                 check(config, source, standalone)
@@ -87,7 +87,7 @@ def main():
     render(['compose.mysql.yaml'])
     independent = render(['compose.yaml'], SINGVERSE_VERSION='1.2.3', COMPUTE_VERSION='4.5.6', COMPOSE_PROFILES='compute')
     require(independent['services']['singverse-go-backend']['image'].endswith(':1.2.3'), 'App version lost')
-    require(independent['services']['singverse-compute']['image'].endswith(':4.5.6-base'), 'Compute must version independently')
+    require(independent['services']['singverse-compute']['image'].endswith(':4.5.6-cuda'), 'Compute must version independently')
     require((ROOT / '.dockerignore').read_bytes() == (ROOT / 'infra/docker/build/.dockerignore').read_bytes(), 'Root Docker ignore must match infra source')
     local = render(['compose.yaml', 'compose.local.yaml'], COMPOSE_PROFILES='compute',
                    SINGVERSE_FRONTEND_PROJECT=str(ROOT), SINGVERSE_COMPUTE_PROJECT=str(ROOT))

@@ -4,16 +4,12 @@
 
 | 运行库 | 镜像架构 | 硬件覆盖 / 用途 |
 |---|---|---|
-| base | AMD64、ARM64 | FFmpeg、媒体探测、独立 ONNX CPU worker |
-| cpu | AMD64、ARM64 | Demucs CPU |
-| uvr | AMD64、ARM64 | UVR ONNX 基线 |
 | cuda | AMD64 | `compose.nvidia.yaml`；兼容 NVIDIA 驱动和 Container Toolkit |
-| rocm | AMD64 | `compose.rocm.yaml`；兼容 AMD 驱动和 GPU |
-| rocm-native | AMD64 | 同上；现有锁定的 gfx1103 运行库，不强制伪造 GPU 标识 |
+| rocm | AMD64 | `compose.rocm.yaml`；通用 ROCm 与独立 gfx1103 运行库合并在同一镜像，按设备探测选择 |
 | openvino | AMD64 | `compose.dri.yaml`；Intel 推理，视频 QSV 单独选择 |
 | rknn | ARM64 | `compose.rknn.yaml`；匹配的瑞芯微 BSP、运行库和已转换模型 |
 
-视频 NVIDIA 使用 `compose.nvidia.yaml`，VAAPI/QSV 使用 `compose.dri.yaml`，瑞芯微 MPP/RGA 使用 `compose.rockchip.yaml`；基础镜像也可按其实际 FFmpeg 能力使用硬件视频处理。RKNN 音频 NPU 与 MPP 视频映射不能相互替代。
+四种镜像均包含 FFmpeg、媒体探测和独立 CPU 降级环境；CPU 不单独发布，也不作为可手动选用的 AI 设备。加速不可用或执行失败时，按共享 `cpuFallback` 开关使用已试跑的 CPU，关闭后不降级。视频 NVIDIA 使用 `compose.nvidia.yaml`，VAAPI/QSV 使用 `compose.dri.yaml`，瑞芯微 MPP/RGA 使用 `compose.rockchip.yaml`。RKNN 音频 NPU 与 MPP 视频映射不能相互替代。
 
 ## 同机 GPU
 
@@ -52,8 +48,8 @@ docker compose --project-directory . -f infra/docker/compose/compose.compute.yam
 
 ## macOS
 
-Docker Desktop 的 Linux 容器不提供 Apple MPS / VideoToolbox。在 singverse-compute 仓库使用 `scripts/macos-compute.py` 管理本机原生节点，见 [compute README](https://github.com/mynora-dot/singverse-compute/blob/main/README.md)；将业务连接地址设置为 `http://host.docker.internal:18090`，回调使用原生节点可访问的 NAS HTTP 地址。不要同时把 Docker compute 当作 Apple GPU 节点。
+使用 singverse-compute 正式 Release 的 `singverse-compute-macos-arm64-<版本>.tar.gz` 和校验文件，按 [Mac 原生安装指南](https://github.com/mynora-dot/singverse-compute/blob/main/MACOS.md)准备原生 ARM64 Python 3.12，运行 `Install.command` 与 `Start.command`。此包提供 MPS / MLX / VideoToolbox，CPU 为内部自动降级环境，不增加 Docker 标签，也不需要新增 GitHub Variables 或 Secrets。Docker 中的业务服务连接 `http://host.docker.internal:18090`，回调使用原生节点可访问的 NAS HTTP 地址；Linux Docker 容器不能代替原生 Apple GPU 节点。
 
 ## 验证限制
 
-CI 检查架构、包导入、依赖一致性和构建身份，不宣称已经取得 GPU、NPU 或具体素材资格。宿主驱动、显存、色调映射、硬解和零拷贝必须在目标主机试跑并单独记录。
+Actions 只构建与发布，不运行独立测试或硬件验收。宿主驱动、显存、色调映射、硬解和零拷贝必须在目标主机试跑并单独记录。
