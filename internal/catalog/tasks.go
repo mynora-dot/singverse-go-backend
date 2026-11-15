@@ -593,6 +593,9 @@ func (s *Service) recover(ctx context.Context) error {
 		if e := s.lock(ctx, tx); e != nil {
 			return e
 		}
+		if e := s.seedClassificationCovers(ctx, tx); e != nil {
+			return e
+		}
 		if e := s.exec(ctx, tx, "c_recoverItems", now()); e != nil {
 			return e
 		}

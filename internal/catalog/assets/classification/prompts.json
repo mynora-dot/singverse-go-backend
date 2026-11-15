@@ -1,0 +1,149 @@
+{
+  "tool": "built-in imagegen",
+  "generatedOn": "2026-11-15",
+  "useCase": "stylized-concept",
+  "output": {
+    "width": 1280,
+    "height": 720,
+    "format": "JPEG",
+    "quality": 85
+  },
+  "prompts": [
+    {
+      "id": "language-0",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse built-in music category cover, 国语 (Mandarin songs). Create one polished 16:9 landscape illustration, full bleed. Scene: intimate contemporary Chinese recording studio at dusk; a beautiful vintage silver microphone in the center foreground, warm amber recording light, out-of-focus dark red acoustic wood panels and soft musical atmosphere. Style: sophisticated editorial illustration, painterly yet dimensional, tactile paper grain, rich restrained warm terracotta, deep ink blue, golden light; strong simple silhouette and thoughtful composition that reads at small thumbnail size. Keep the main microphone in the central 60 percent so a square crop works. No people, no flags, no lettering, no numbers, no musical-note icons, no logos, no watermark, no border, no UI. This is a finished music cover, not a grid."
+    },
+    {
+      "id": "language-1",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 粤语. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: Hong Kong harbor after dusk, a vintage silver microphone in central foreground, rich red and teal harbor reflections, distant ferry and dense elegant city silhouettes, nostalgic Cantonese music mood. No readable signage. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "language-2",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 英语. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: An intimate British brick-walled recording room at evening, central honey-colored hollow-body electric guitar resting against a small amplifier, warm lamp, rain-glazed dark window and blue city bokeh, soulful English-language music mood. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "language-3",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 日语. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A quiet Japanese listening café at blue hour, central elegant wooden acoustic guitar and compact turntable, soft cherry blossom branch at the edge, rainy Tokyo neighborhood window with abstract warm lights, dusty rose, midnight navy and warm cream. One single finished artwork, central subject in the middle 60 percent, no people or readable signage."
+    },
+    {
+      "id": "language-4",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 韩语. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: Contemporary Seoul rooftop music studio at dusk, central sleek white studio microphone with elegant over-ear headphones, distant softly blurred skyline and violet-pink sunset, muted lilac, coral and deep blue. Stylish youthful music mood. One single finished artwork, central subject in the middle 60 percent, no people or readable signage."
+    },
+    {
+      "id": "language-5",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 多语种. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A beautiful collection of acoustic music instruments from across the world gathered on one intimate wooden studio stage: central oud and classical guitar, smaller hand drum, violin and silver microphone balanced around them, jewel teal, ochre, rust and cream. Harmonious worldly listening atmosphere, clear uncluttered visual hierarchy. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "language-6",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 其他语种. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A refined listening corner with central over-ear headphones resting around a small warm wooden speaker, a few unmarked vinyl sleeves, distant window overlooking quiet hills, sage green, indigo and golden late-afternoon light. A calm sense of discovering unfamiliar songs. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-0",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 1950 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: Mid-century 1950s music listening room, a central elegant walnut valve radio with rounded cream speaker grille and softly glowing unmarked dial, black shellac record on table, amber lamplight, cream walls, sepia and deep teal shadows. Period-inspired nostalgic atmosphere; no text or numbers even on the dial. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-1",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 1960 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: 1960s portable cream and pale turquoise record player with open lid at center, a vinyl record with plain blank label turning on it, sunny mid-century interior, warm orange curtains and geometric furnishings, nostalgic aqua, mustard and warm ivory, gentle afternoon light. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-2",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 1970 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A 1970s analog hi-fi listening room with central large reel-to-reel tape recorder, brushed silver face and two handsome dark reels, walnut cabinet, amber lamp and olive green wall, warm burnt orange and tobacco brown, timeless analog soul. No visible lettering or scale numbers. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-3",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 1980 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central 1980s silver cassette boombox with twin speakers and blank cassette window on a dark studio shelf, coral and cyan neon side lighting, deep midnight blue background, tactile brushed metal and retro energy, strong graphic shape. No lettering, logos or numbers on the equipment. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-4",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 1990 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central 1990s compact portable CD player opened to show a shimmering unmarked silver compact disc, slim wired headphones carefully resting around it, a couple of translucent jewel cases without printing on a bedroom desk, soft blue evening with warm coral light, silver, navy and peach, tactile nostalgic mood. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-5",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 2000 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central small brushed-silver early digital music player with blank dark screen and plain circular control, white wired earphones looping elegantly around it, laptop softly blurred behind it on a cozy young music fan's desk, aqua, silver and amber early-millennium aesthetic. No screens with text, no logos or readable interface. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-6",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 2010 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A 2010s home music production corner with central over-ear headphones resting on a compact MIDI keyboard, a plain dark smartphone screen and softly blurred studio monitors behind, indigo room with soft magenta and aqua lighting, inviting modern digital music mood. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "decade-7",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 2020 年代. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A beautifully designed contemporary home recording desk with central sleek condenser microphone and compact audio interface, a pair of small wireless earbuds in open case in the foreground, quiet smart studio at blue hour, pearl gray, electric teal and midnight ink with warm lighting, clean modern atmosphere. No readable screens or equipment labels. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-0",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 流行. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A contemporary concert stage with a beautiful central chrome handheld microphone on stand, warm peach and vivid coral spotlights, soft distant audience bokeh, polished modern pop-music energy, rich navy shadows and restrained golden highlights. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-1",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 摇滚. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A powerful red electric guitar standing centrally in front of a dark guitar amplifier on an intimate live stage, copper stage light and deep midnight blue beams, a drum kit softly suggested behind, energetic but sophisticated rock atmosphere. No brand marks on the guitar or amp. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-2",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 民谣. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central beautiful honey-colored wooden acoustic guitar leaning on a rustic stool beside a sunlit cabin window, green hills and quiet countryside beyond, soft linen curtain, warm natural wood, muted olive, cream and amber. Intimate unhurried folk music feeling. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-3",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 电子. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central analog synthesizer and drum machine on a stylish dark studio desk, graceful teal and coral light trails suggesting pulsing rhythm behind, small glowing unlabeled buttons, midnight blue and amber, tactile hardware, sophisticated electronic music energy. No floating symbols or screen text. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-4",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 说唱. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: Central close-up of a sturdy black handheld vocal microphone hovering on its short stand above a hip-hop beat pad sampler, a pair of headphones nearby, textured urban brick studio wall, warm amber edge light against slate blue and rust, confident rhythmic hip-hop atmosphere. Unmarked equipment, no graffiti lettering. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-5",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 爵士. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: An elegant golden tenor saxophone centered on a stand in an intimate empty jazz club, burgundy velvet curtain and a softly blurred upright double bass, small amber table lamps, deep wine and navy shadows, mellow refined late-night jazz atmosphere. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-6",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 古典. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A polished black grand piano in the center of a small empty classical concert hall, warm ivory keys and graceful violin resting on nearby chair, tall arched windows, velvet and wood, soft gold and deep indigo light, elegant timeless chamber-music atmosphere. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "genre-7",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for R&B. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central warm brass studio vocal microphone with black headphones in an intimate late-night soul studio, softly blurred electric piano, smooth burgundy and midnight plum shadows with honey-gold highlights, lush velvet textures and quiet romantic rhythm-and-blues mood. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "mood-0",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 欢快. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A bright joyful central small yellow ukulele on a sunny window seat with a light tambourine, warm apricot sunshine, fresh mint green leaves, gentle confetti-like sun flecks, cheerful lively musical feeling, clean uplifting composition without visual clutter. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "mood-1",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 伤感. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central black upright piano by a rain-streaked window at twilight, a single pale flower in a glass on top, cool slate blue and muted lavender with one small amber lamp, soft city reflections through rain, tender melancholy musical atmosphere, quiet and beautiful. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "mood-2",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 温柔. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: An intimate softly lit music corner, a central small warm wooden acoustic guitar beside an ivory linen armchair, pale roses, sheer curtain and peach afternoon light, warm cream, dusty rose and sage, tender gentle comforting musical mood, delicate painterly detail. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "mood-3",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 激昂. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A dramatic central concert snare drum and pair of drumsticks beneath soaring golden stage beams, strong red-copper and deep indigo background, subtle rising haze and vivid live-stage atmosphere, inspiring triumphant musical energy, clear bold silhouette rather than clutter. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "mood-4",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 平静. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A quiet central wooden acoustic guitar resting on a small lakeside terrace at dawn, very still water, distant soft mountains and pale sky, gentle mist, muted sage, soft indigo and warm ivory, spacious contemplative musical atmosphere, serene rather than sad. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "scene-0",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 聚会. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: Two modern karaoke microphones centered on a low table in a stylish cozy living-room party setting, soft festive string lights, blurred colorful balloons at the sides, comfortable sofa in back, warm amber with coral and teal accents, joyful welcoming gathering mood, no people, no drinks or bottles. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "scene-1",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 怀旧. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A central vintage walnut turntable spinning a black vinyl record with blank cream label, a few old blank record sleeves and unmarked cassette tapes beside it, warm amber reading lamp, soft teal wallpaper and nostalgic evening shadows, beautifully tactile analog listening atmosphere. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "scene-2",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 独唱. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A single elegant central silver vocal microphone on stand on an empty intimate wooden stage, one warm golden spotlight creating a soft circle of light, deep midnight blue velvet curtains, quiet poised atmosphere just before a solo song begins, restrained and emotionally focused. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "scene-3",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 合唱. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: Three elegant vocal microphones on stands arranged together in a clear central group on a warm wooden rehearsal stage, softly blurred piano and burgundy acoustic curtains, amber studio light with teal shadows, welcoming harmonious ensemble atmosphere, all three microphones remain inside center 60 percent. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "custom-0",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 家庭常唱. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A warm welcoming family living-room music corner at early evening, two central karaoke microphones resting side by side on a wooden coffee table, a small acoustic guitar beside a comfortable linen sofa, soft knitted blanket and warm table lamp, cream, terracotta and sage, homey togetherness, no screens or people. One single finished artwork, central subject in the middle 60 percent, no people."
+    },
+    {
+      "id": "custom-1",
+      "prompt": "Use case: stylized-concept. Asset type: SingVerse music category cover for 长辈喜爱. Polished 16:9 full-bleed cinematic editorial music illustration, painterly yet dimensional, tactile fine paper grain, rich restrained color, strong simple central silhouette that reads at small thumbnail size and square center crop. No text, numbers, logos, flags, watermarks, borders or UI. Scene: A lovingly kept old Chinese home music corner, central elegant vintage silver microphone beside a small walnut tabletop radio and an unmarked vinyl record, warm afternoon sun across wooden furniture, a simple porcelain tea cup, muted jade, warm cream and golden brown, dignified comforting nostalgia, no people or readable labels. One single finished artwork, central subject in the middle 60 percent, no people."
+    }
+  ]
+}
