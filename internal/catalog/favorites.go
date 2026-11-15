@@ -134,7 +134,8 @@ func (s *Service) listFavorites(ctx context.Context, q, availability, order stri
 		needle := search.Normalize(q)
 		for _, row := range rows {
 			id := str(row["song_id"])
-			available := live[id] != nil
+			verification := str(live[id]["mediaVerification"])
+			available := live[id] != nil && (verification == "" || verification == "PRESENT")
 			if availability == "AVAILABLE" && !available || availability == "UNAVAILABLE" && available {
 				continue
 			}
@@ -219,4 +220,8 @@ func (s *Service) registerFavorites(r *gin.Engine, base string, tv bool, middlew
 
 func (s *Service) RegisterDeviceFavorites(r *gin.Engine, deviceOnly gin.HandlerFunc) {
 	s.registerFavorites(r, "/api/v1/tv/favorites", true, deviceOnly)
+}
+
+func (s *Service) RegisterPartyFavorites(r *gin.Engine, actor gin.HandlerFunc) {
+	s.registerFavorites(r, "/api/v1/party/favorites", true, actor)
 }

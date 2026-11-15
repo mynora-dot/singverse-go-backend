@@ -1,10 +1,14 @@
 package app
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestPartyAudioRolesPreserveBearerAndPlaybackBoundaries(t *testing.T) {
@@ -44,13 +48,15 @@ func TestPartyAudioRolesPreserveBearerAndPlaybackBoundaries(t *testing.T) {
 	// The compute observation is an isolated fixture. Role reads, revision checks,
 	// correction and persistence below all run through the real application HTTP.
 	probeID := requestID()
-	if _, err = a.db.Exec(`INSERT INTO media_audio_job(id,song_id,kind,state,fingerprint,node_origin,result_json,error,created_at,updated_at) VALUES(?,?,'PROBE','SUCCEEDED',?,'','{"streams":[{"id":"stream:0","kind":"audio"},{"id":"stream:1","kind":"audio"}],"duration":180}','','0','0')`, probeID, songID, initial["fingerprint"]); err != nil {
+	if _, err = a.db.Exec(`INSERT INTO media_audio_job(id,song_id,kind,state,fingerprint,node_origin,result_json,error,created_at,updated_at) VALUES(?,?,'PROBE','SUCCEEDED',?,'','{"streams":[{"id":"stream:0","kind":"audio"},{"id":"stream:1","kind":"audio"},{"id":"stream:2","kind":"video"}],"duration":180}','','0','0')`, probeID, songID, initial["fingerprint"]); err != nil {
 		t.Fatal(err)
 	}
+	bindPartyProbeRead(t, a, songID, probeID)
 	observed := guest.call("GET", partyPath, nil, guestToken, 200)
 	if streams, _ := observed["streams"].([]any); len(streams) != 2 {
 		t.Fatal(observed)
 	}
+	guest.call("PUT", partyPath, map[string]any{"originalId": "stream:0", "backingId": "stream:2", "revision": 0}, guestToken, 409)
 	correction := map[string]any{"originalId": "stream:0", "backingId": "stream:1", "revision": 0}
 	saved := guest.call("PUT", partyPath, correction, guestToken, 200)
 	if saved["revision"] != float64(1) || saved["origin"] != "MANUAL" || saved["originalId"] != "stream:0" || saved["backingId"] != "stream:1" {
@@ -75,6 +81,14 @@ func TestPartyAudioRolesPreserveBearerAndPlaybackBoundaries(t *testing.T) {
 	if err = a.db.QueryRow("SELECT original_id,backing_id,revision FROM media_audio_role WHERE song_id=?", songID).Scan(&original, &backing, &revision); err != nil || original != "stream:1" || backing != "stream:0" || revision != 2 {
 		t.Fatal("HTTP correction was not persisted", original, backing, revision, err)
 	}
+	if _, err = a.db.Exec(`UPDATE media_audio_job SET result_json='{"streams":[{"id":"stream:0","kind":"audio"},{"id":"stream:1","kind":"audio"},{"id":"stream:2","kind":"video"},{"id":"stream:3","kind":"audio","title":"粤语原唱"}],"duration":180}' WHERE id=?`, probeID); err != nil {
+		t.Fatal(err)
+	}
+	multiple := guest.call("GET", partyPath, nil, guestToken, 200)
+	if streams, _ := multiple["streams"].([]any); len(streams) != 3 {
+		t.Fatal("multi-track projection included a video stream", multiple)
+	}
+	guest.call("PUT", partyPath, map[string]any{"originalId": "stream:3", "backingId": "stream:0", "revision": 2}, guestToken, 200)
 	// Shared role authorization does not grant the participant television media
 	// access, offline versions, or another actor's transcode lease.
 	transcodeID := requestID()
@@ -104,5 +118,44 @@ func TestPartyAudioRolesPreserveBearerAndPlaybackBoundaries(t *testing.T) {
 			guest.call("GET", path, nil, token, 401)
 			guest.call("PUT", path, reversed, token, 401)
 		}
+	}
+}
+
+// Current analysis fixtures carry the same source-binding receipt as production probes.
+func bindPartyProbeRead(t *testing.T, a *Application, songID, probeID string) {
+	t.Helper()
+	var err error
+	var songRow = map[string]any{}
+	rows, err := a.db.Queryx(`SELECT song.*,source.source_type,source.location,source.username,source.password_encrypted FROM media_song song JOIN media_source source ON source.id=song.source_id WHERE song.id=?`, songID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rows.Next() {
+		t.Fatal("fixture song missing")
+	}
+	if err = rows.MapScan(songRow); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	bindingDigest := func(values ...any) string {
+		var b strings.Builder
+		for _, v := range values {
+			if v == nil {
+				b.WriteString("-1:")
+			} else {
+				text := fmt.Sprint(v)
+				fmt.Fprintf(&b, "%d:%s", len(utf16.Encode([]rune(text))), text)
+			}
+		}
+		return fmt.Sprintf("%x", sha256.Sum256([]byte(b.String())))
+	}
+	content := bindingDigest("content:v2", songRow["id"], songRow["file_size"], songRow["modified_at"], nil, nil)
+	configuration := bindingDigest("source:v2", songRow["source_id"], songRow["source_type"], songRow["location"], songRow["username"], songRow["password_encrypted"])
+	readFingerprint := bindingDigest("analysis-read:v1", bindingDigest("playback:v2", content, songRow["relative_path"], configuration), nil, nil)
+	if _, err = a.db.Exec(`INSERT INTO media_analysis_read(id,fingerprint,max_bytes,max_requests,max_elapsed_ms,used_bytes,request_count,elapsed_ms,etag,modified,updated_at) VALUES(?,?,1,1,1,0,0,0,'','',0)`, probeID, readFingerprint); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.db.Exec(`UPDATE media_audio_job SET read_session_id=? WHERE id=?`, probeID, probeID); err != nil {
+		t.Fatal(err)
 	}
 }

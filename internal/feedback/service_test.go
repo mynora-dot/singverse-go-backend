@@ -104,3 +104,24 @@ func TestSubmissionRequiresAllRawFields(t *testing.T) {
 		t.Fatal("negative page accepted")
 	}
 }
+
+func TestPartySubmissionUsesServerIdentityAndStableReceipt(t *testing.T) {
+	s := fixture(t)
+	ctx := t.Context()
+	in := Create{RequestID: "32345678-1234-1234-1234-123456789abc", Title: ptr("想唱的歌"), SubmittedBy: ptr("伪造管理员")}
+	first, err := s.CreateParty(ctx, in, "guest-1", "小明")
+	if err != nil || first.Source != "PARTY" || first.SubmittedBy != "小明" {
+		t.Fatal(first, err)
+	}
+	again, err := s.CreateParty(ctx, in, "guest-1", "小明")
+	if err != nil || first.ID != again.ID {
+		t.Fatal(again, err)
+	}
+	if _, err = s.CreateParty(ctx, in, "guest-2", "小明"); err == nil {
+		t.Fatal("request ID reused across participants")
+	}
+	page, err := s.List(ctx, "", "ALL", 0, 20)
+	if err != nil || page.TotalElements != 1 {
+		t.Fatal(page, err)
+	}
+}

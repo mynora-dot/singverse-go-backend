@@ -2,6 +2,7 @@ package party
 
 import (
 	"context"
+	"time"
 
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
@@ -13,11 +14,19 @@ func enqueuePlaybackCommand(session document, action string) error {
 	if len(commands) >= maxPlaybackCommands {
 		return fail(409, "电视未响应，请等待连接恢复")
 	}
-	command := document{"id": id(), "action": action}
+	command := document{"id": id(), "action": action, "requestId": session["currentRequestId"]}
 	if playback, ok := session["playback"].(map[string]any); ok {
 		command["playback"] = clone(playback)
+		command["attemptId"] = playback["attemptId"]
 	}
 	session["commands"] = append(commands, command)
+	if fair(session) {
+		results := append(array(session, "commandResults"), document{"id": command["id"], "requestId": command["requestId"], "attemptId": command["attemptId"], "action": action, "status": "SENT", "createdAt": time.Now().UTC().Format(time.RFC3339Nano)})
+		if len(results) > 50 {
+			results = results[len(results)-50:]
+		}
+		session["commandResults"] = results
+	}
 	return nil
 }
 

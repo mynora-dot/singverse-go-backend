@@ -63,3 +63,27 @@ func (s *Service) Register(g *gin.RouterGroup) {
 		c.JSON(200, out)
 	})
 }
+
+func (s *Service) RegisterParty(r *gin.Engine, actor gin.HandlerFunc) {
+	r.POST("/api/v1/party/missing-song-feedback", actor, func(c *gin.Context) {
+		var input Create
+		if !httpx.Decode(c, &input, 16384) {
+			return
+		}
+		raw, _ := c.Get("partyActor")
+		identity, _ := raw.(map[string]any)
+		actorID, _ := identity["id"].(string)
+		name, _ := identity["name"].(string)
+		if actorID == "" {
+			httpx.Error(c, 401, "about:blank", "请先加入聚会")
+			return
+		}
+		out, err := s.CreateParty(c.Request.Context(), input, actorID, name)
+		if err != nil {
+			s.report(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(201, out)
+	})
+}

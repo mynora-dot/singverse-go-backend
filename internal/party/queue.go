@@ -36,24 +36,32 @@ func (s *Service) changeQueue(ctx context.Context, tx store.DBTX, actor document
 		if previous != signature {
 			return nil, fail(409, "请求标识已用于其他操作")
 		}
-		return snapshot(session, actor), nil
+		return s.snapshot(session, actor), nil
 	}
 	if str(session, "status") != "ACTIVE" {
 		return nil, fail(409, "聚会已结束")
-	}
-	if _, ok := input["expectedRevision"]; !ok || number(input, "expectedRevision") != number(session, "queueRevision") {
-		return nil, fail(409, "队列已更新，请核对后重试")
 	}
 	action, err := text(input, "action", 30)
 	if err != nil {
 		return nil, err
 	}
+	remote := fair(session) && playbackAction(action) && action != "NEXT" && !(action == "RESUME" && boolean(session, "manualStopped"))
+	if !remote {
+		if _, ok := input["expectedRevision"]; !ok || number(input, "expectedRevision") != number(session, "queueRevision") {
+			return nil, fail(409, "队列已更新，请核对后重试")
+		}
+	}
+	session["currentRequestId"] = requestID
 	if err = s.applyQueueAction(ctx, tx, actor, session, input, action); err != nil {
 		return nil, err
 	}
+	delete(session, "currentRequestId")
+	scheduleFair(session)
 
 	session["queue"] = array(session, "queue")
-	session["queueRevision"] = number(session, "queueRevision") + 1
+	if !remote {
+		session["queueRevision"] = number(session, "queueRevision") + 1
+	}
 	receipts[receiptKey] = signature
 	session["receipts"] = receipts
 	if len(receipts) > maxSessionReceipts {
@@ -63,7 +71,7 @@ func (s *Service) changeQueue(ctx context.Context, tx store.DBTX, actor document
 		return nil, err
 	}
 	s.prefetchChanged(session, action == "STOP", false)
-	return snapshot(session, actor), nil
+	return s.snapshot(session, actor), nil
 }
 
 func (s *Service) applyQueueAction(ctx context.Context, tx store.DBTX, actor, session, input document, action string) error {
@@ -74,6 +82,16 @@ func (s *Service) applyQueueAction(ctx context.Context, tx store.DBTX, actor, se
 		return removeQueueSong(actor, session, str(input, "itemId"))
 	}
 
+	if fair(session) {
+		switch action {
+		case "TOP", "UNTOP", "SHUFFLE", "UP", "DOWN":
+			return changeFairOrder(session, input, action)
+		case "START", "NEXT", "PAUSE", "RESUME", "RESTART", "STOP", "SEEK", "AUDIO_ROLE", "APPLY_AUDIO_ROLES":
+			return s.fairControl(ctx, tx, session, input, action)
+		}
+	} else if action == "SEEK" || action == "AUDIO_ROLE" || action == "APPLY_AUDIO_ROLES" || action == "SHUFFLE" || action == "UNTOP" {
+		return fail(409, "请更新电视版本以使用此功能")
+	}
 	if !host(actor) {
 		return fail(403, "需要主持权限")
 	}
@@ -123,8 +141,16 @@ func (s *Service) addQueueSong(ctx context.Context, tx store.DBTX, actor, sessio
 	session["queue"] = append(queue, document{
 		"id": id(), "songId": songID,
 		"ownerId": actor["id"], "ownerName": ownerName,
-		"status": "WAITING", "song": Projection(song),
+		"status": "WAITING", "song": Projection(song), "sequence": number(session, "nextSequence") + 1,
 	})
+	session["nextSequence"] = number(session, "nextSequence") + 1
+	if fair(session) {
+		scheduleFair(session)
+		state := str(object(session, "playback"), "state")
+		if !boolean(session, "manualStopped") && (state == "" || state == "ENDED" || state == "IDLE") {
+			return s.advanceFair(ctx, tx, session, false)
+		}
+	}
 	return nil
 }
 

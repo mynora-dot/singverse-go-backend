@@ -365,9 +365,9 @@ func (s *Service) registerLibrary(r *gin.Engine) {
 		})
 	}
 	r.GET("/api/v1/mobile/library/songs", func(c *gin.Context) { s.searchSongs(c, true) })
-	for _, prefix := range []string{"tv", "mobile"} {
+	for _, prefix := range []string{"tv", "mobile", "party"} {
 		var middleware []gin.HandlerFunc
-		if prefix == "tv" {
+		if prefix != "mobile" {
 			middleware = []gin.HandlerFunc{s.RequireActor(false)}
 		}
 		r.GET("/api/v1/"+prefix+"/library/songs/:id", append(middleware, func(c *gin.Context) {
@@ -383,7 +383,7 @@ func (s *Service) registerLibrary(r *gin.Engine) {
 			}
 		})...)
 		textMiddleware := middleware
-		if prefix == "tv" {
+		if prefix != "mobile" {
 			textMiddleware = []gin.HandlerFunc{s.RequireActor(true)}
 		}
 		r.GET("/api/v1/"+prefix+"/library/songs/:id/text-tracks", append(textMiddleware, s.textTracks)...)
@@ -410,76 +410,78 @@ func (s *Service) registerLibrary(r *gin.Engine) {
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Data(200, kind, data)
 	})
-	r.GET("/api/v1/tv/library/artists", s.RequireActor(false), func(c *gin.Context) {
-		page, size, err := pageParams(c)
-		if err != nil {
-			s.report(c, err)
-			return
-		}
-		index, err := s.current(c.Request.Context())
-		if err != nil {
-			s.report(c, err)
-			return
-		}
-		items := []document{}
-		needle := search.Normalize(c.Query("q"))
-		for _, v := range index.artists {
-			if needle == "" || strings.Contains(search.Searchable(str(v, "name")), needle) {
-				items = append(items, v)
+	for _, prefix := range []string{"tv", "party"} {
+		r.GET("/api/v1/"+prefix+"/library/artists", s.RequireActor(false), func(c *gin.Context) {
+			page, size, err := pageParams(c)
+			if err != nil {
+				s.report(c, err)
+				return
 			}
-		}
-		sort.Slice(items, func(i, j int) bool {
-			if str(items[i], "name") == str(items[j], "name") {
-				return str(items[i], "id") < str(items[j], "id")
+			index, err := s.current(c.Request.Context())
+			if err != nil {
+				s.report(c, err)
+				return
 			}
-			return str(items[i], "name") < str(items[j], "name")
+			items := []document{}
+			needle := search.Normalize(c.Query("q"))
+			for _, v := range index.artists {
+				if needle == "" || strings.Contains(search.Searchable(str(v, "name")), needle) {
+					items = append(items, v)
+				}
+			}
+			sort.Slice(items, func(i, j int) bool {
+				if str(items[i], "name") == str(items[j], "name") {
+					return str(items[i], "id") < str(items[j], "id")
+				}
+				return str(items[i], "name") < str(items[j], "name")
+			})
+			c.JSON(200, paginate(items, page, size))
 		})
-		c.JSON(200, paginate(items, page, size))
-	})
-	r.GET("/api/v1/tv/library/artists/:id", s.RequireActor(false), func(c *gin.Context) {
-		index, err := s.current(c.Request.Context())
-		if err != nil {
-			s.report(c, err)
-			return
-		}
-		v := index.artists[c.Param("id")]
-		if v == nil {
-			s.report(c, fail(404, "歌手不在当前曲库中"))
-			return
-		}
-		c.JSON(200, clone(v))
-	})
-	r.GET("/api/v1/tv/library/artists/:id/songs", s.RequireActor(false), func(c *gin.Context) {
-		query := c.Request.URL.Query()
-		query.Set("artistId", c.Param("id"))
-		c.Request.URL.RawQuery = query.Encode()
-		s.searchSongs(c, false)
-	})
-	r.GET("/api/v1/tv/library/artists/:id/images/:kind", s.RequireActor(false), func(c *gin.Context) {
-		kind := c.Param("kind")
-		if kind != "portrait" && kind != "background" {
-			s.report(c, fail(400, "图片类型只能是portrait或background"))
-			return
-		}
-		kind = strings.ToUpper(kind)
-		var data []byte
-		var active int
-		err := s.db.QueryRowContext(c.Request.Context(), s.q["artist_image"], c.Param("id"), kind).Scan(&data, &active)
-		if err == sql.ErrNoRows {
-			s.report(c, fail(404, "图片不存在或已停用"))
-			return
-		}
-		if err != nil {
-			s.report(c, err)
-			return
-		}
-		if active != 1 {
-			s.report(c, fail(404, "图片不存在或已停用"))
-			return
-		}
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Data(200, "image/jpeg", data)
-	})
+		r.GET("/api/v1/"+prefix+"/library/artists/:id", s.RequireActor(false), func(c *gin.Context) {
+			index, err := s.current(c.Request.Context())
+			if err != nil {
+				s.report(c, err)
+				return
+			}
+			v := index.artists[c.Param("id")]
+			if v == nil {
+				s.report(c, fail(404, "歌手不在当前曲库中"))
+				return
+			}
+			c.JSON(200, clone(v))
+		})
+		r.GET("/api/v1/"+prefix+"/library/artists/:id/songs", s.RequireActor(false), func(c *gin.Context) {
+			query := c.Request.URL.Query()
+			query.Set("artistId", c.Param("id"))
+			c.Request.URL.RawQuery = query.Encode()
+			s.searchSongs(c, false)
+		})
+		r.GET("/api/v1/"+prefix+"/library/artists/:id/images/:kind", s.RequireActor(false), func(c *gin.Context) {
+			kind := c.Param("kind")
+			if kind != "portrait" && kind != "background" {
+				s.report(c, fail(400, "图片类型只能是portrait或background"))
+				return
+			}
+			kind = strings.ToUpper(kind)
+			var data []byte
+			var active int
+			err := s.db.QueryRowContext(c.Request.Context(), s.q["artist_image"], c.Param("id"), kind).Scan(&data, &active)
+			if err == sql.ErrNoRows {
+				s.report(c, fail(404, "图片不存在或已停用"))
+				return
+			}
+			if err != nil {
+				s.report(c, err)
+				return
+			}
+			if active != 1 {
+				s.report(c, fail(404, "图片不存在或已停用"))
+				return
+			}
+			c.Header("X-Content-Type-Options", "nosniff")
+			c.Data(200, "image/jpeg", data)
+		})
+	}
 	r.GET("/api/v1/tv/library/playlists", s.RequireActor(false), func(c *gin.Context) {
 		page, size, err := pageParams(c)
 		if err != nil {

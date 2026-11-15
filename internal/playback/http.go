@@ -106,7 +106,10 @@ func (s *Service) reportHTTP(c *gin.Context) {
 	c.JSON(200, result)
 }
 func (s *Service) filter(c *gin.Context) (map[string]any, error) {
-	q, song, period := c.Query("q"), c.Query("songId"), c.DefaultQuery("period", "30d")
+	return s.filterWithDefault(c, "30d")
+}
+func (s *Service) filterWithDefault(c *gin.Context, defaultPeriod string) (map[string]any, error) {
+	q, song, period := c.Query("q"), c.Query("songId"), c.DefaultQuery("period", defaultPeriod)
 	if !validText(q, 200, true) || !validText(song, 64, true) {
 		return nil, fail(400, "关键词或歌曲编号无效")
 	}

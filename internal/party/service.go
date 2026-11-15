@@ -402,13 +402,28 @@ func check(actor, session document) error {
 	return nil
 }
 func host(actor document) bool { return str(actor, "kind") == "device" || boolean(actor, "host") }
-func snapshot(session, actor document) document {
+func (s *Service) snapshot(session, actor document) document {
 	v := clone(session)
 	delete(v, "receipts")
 	v["stateRevision"] = number(session, "revision")
 	v["revision"] = number(session, "queueRevision")
 	v["actorId"] = actor["id"]
 	v["host"] = host(actor)
+	now := s.now().UTC()
+	v["sampledAt"] = now.Format(time.RFC3339Nano)
+	seen, err := time.Parse(time.RFC3339Nano, str(session, "tvSeenAt"))
+	v["tvOnline"] = err == nil && now.Sub(seen) < 15*time.Second
+	delete(v, "reactionReceipts")
+	delete(v, "reactionRates")
+	delete(v, "currentRequestId")
+	events := []any{}
+	for _, raw := range array(session, "reactions") {
+		event := raw.(map[string]any)
+		if number(event, "expiresAt") > now.UnixMilli() {
+			events = append(events, event)
+		}
+	}
+	v["reactions"] = events
 	if str(actor, "kind") != "device" {
 		delete(v, "commands")
 	}
@@ -432,7 +447,7 @@ func (s *Service) session(ctx context.Context, tx store.DBTX, actor document) (d
 			return nil, e
 		}
 		if str(old, "status") == "ACTIVE" {
-			return snapshot(old, actor), nil
+			return s.snapshot(old, actor), nil
 		}
 	}
 	sid := id()
@@ -444,7 +459,7 @@ func (s *Service) session(ctx context.Context, tx store.DBTX, actor document) (d
 	if err = s.save(ctx, tx, d); err != nil {
 		return nil, err
 	}
-	return snapshot(v, actor), nil
+	return s.snapshot(v, actor), nil
 }
 func (s *Service) recover(ctx context.Context, tx store.DBTX, actor document, sid string) (document, error) {
 	if str(actor, "kind") != "device" {
@@ -470,13 +485,21 @@ func (s *Service) recover(ctx context.Context, tx store.DBTX, actor document, si
 		}
 	}
 	delete(v, "playback")
-	v["commands"] = []any{}
+	if fair(v) {
+		cancelPendingCommands(v)
+		v["manualStopped"] = true
+	} else {
+		v["commands"] = []any{}
+	}
+	// A reconnecting client must declare its own capabilities. A downgraded TV
+	// cannot inherit commands supported only by the previously connected build.
+	v["capabilities"], v["queuePolicy"] = []string{}, "LEGACY"
 	v["queueRevision"] = number(v, "queueRevision") + 1
 	if err = s.save(ctx, tx, v); err != nil {
 		return nil, err
 	}
 	s.prefetchChanged(v, false, false)
-	return snapshot(v, actor), nil
+	return s.snapshot(v, actor), nil
 }
 func (s *Service) invitation(ctx context.Context, tx store.DBTX, actor document, sid string) (document, error) {
 	if err := s.lock(ctx, tx, sid); err != nil {

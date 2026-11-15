@@ -23,6 +23,9 @@ func (s *Service) applySessionAction(ctx context.Context, tx store.DBTX, session
 			}
 			session["status"] = "ENDED"
 			session["acceptingRequests"] = false
+			if fair(session) {
+				cancelPendingCommands(session)
+			}
 			session["commands"] = []any{}
 			return enqueuePlaybackCommand(session, "STOP")
 		}

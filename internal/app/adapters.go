@@ -45,6 +45,8 @@ func playbackSongReader(media *library.Service) playback.SongReader {
 		}
 		projection := party.Projection(song)
 		projection["versionType"] = projection["version"]
+		verification, _ := song["mediaVerification"].(string)
+		projection["available"] = verification == "" || verification == "PRESENT"
 		return projection, nil
 	}
 }

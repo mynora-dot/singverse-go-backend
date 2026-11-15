@@ -168,6 +168,22 @@ func (s *Service) List(ctx context.Context, q, status string, page, size int) (P
 	return result, err
 }
 func (s *Service) Create(ctx context.Context, in Create) (Feedback, error) {
+	return s.create(ctx, in, "ADMIN", "")
+}
+
+// Identity is supplied by authenticated middleware, never by the submission.
+func (s *Service) CreateParty(ctx context.Context, in Create, actorID, name string) (Feedback, error) {
+	in.SubmittedBy = &name
+	for _, field := range []**string{&in.Artist, &in.VersionLabel, &in.Description} {
+		if *field == nil {
+			empty := ""
+			*field = &empty
+		}
+	}
+	return s.create(ctx, in, "PARTY", actorID)
+}
+
+func (s *Service) create(ctx context.Context, in Create, source, actorID string) (Feedback, error) {
 	var out Feedback
 	if !uuid.MatchString(in.RequestID) {
 		return out, fail(400, "登记请求标识无效")
@@ -183,6 +199,9 @@ func (s *Service) Create(ctx context.Context, in Create) (Feedback, error) {
 		}
 	}
 	encoded, _ := json.Marshal(values)
+	if source == "PARTY" {
+		encoded, _ = json.Marshal([]any{source, actorID, values})
+	}
 	sum := sha256.Sum256(encoded)
 	hash := hex.EncodeToString(sum[:])
 	now := timestamp()
@@ -202,7 +221,7 @@ func (s *Service) Create(ctx context.Context, in Create) (Feedback, error) {
 		if !errors.As(e, &problem) || problem.status != 404 {
 			return e
 		}
-		_, e = tx.ExecContext(ctx, s.q["insert"], in.RequestID, values[0], values[1], values[2], values[3], values[4], search.Searchable(values[0]+" "+values[1]+" "+values[2]), hash, now, now)
+		_, e = tx.ExecContext(ctx, s.q["insert"], in.RequestID, values[0], values[1], values[2], values[3], values[4], source, search.Searchable(values[0]+" "+values[1]+" "+values[2]), hash, now, now)
 		if e != nil {
 			return e
 		}

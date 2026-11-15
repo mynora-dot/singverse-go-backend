@@ -190,7 +190,7 @@ func projectAudioDocument(song map[string]any, d metastandard.Document, receipt,
 			ids[str(obj(raw), "id")] = true
 		}
 		duration := number(d.Fields["durationMs"]) / 1000
-		if len(streams) == len(ids) && ids[original] && (len(ids) == 1 && backing == "" || len(ids) == 2 && backing != original && ids[backing]) && duration > 0 && duration <= 604800 {
+		if len(streams) == len(ids) && ids[original] && (len(ids) == 1 && backing == "" || len(ids) >= 2 && backing != original && ids[backing]) && duration > 0 && duration <= 604800 {
 			// A real receiver probe, if present, must not contradict the package.
 			if value["streams"] != nil && (!matchingAudioStreams(streams, value["streams"]) || math.Abs(duration-number(value["duration"])) > .25) {
 				return

@@ -3,6 +3,7 @@ package party
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
@@ -38,13 +39,38 @@ func (s *Service) recordPlaybackEvent(ctx context.Context, tx store.DBTX, actor 
 	if err = check(actor, session); err != nil {
 		return nil, err
 	}
+	session["tvSeenAt"] = s.now().UTC().Format(time.RFC3339Nano)
 	commandID := str(input, "commandId")
 	commands := array(session, "commands")
 	acknowledged := false
 	if commandID != "" {
 		for i, raw := range commands {
-			if str(raw.(map[string]any), "id") == commandID {
-				commands = commands[i+1:]
+			command := raw.(map[string]any)
+			if str(command, "id") == commandID {
+				if fair(session) {
+					status := str(input, "commandStatus")
+					if status == "" {
+						status = "EXECUTED"
+					}
+					if status != "EXECUTED" && status != "FAILED" {
+						return nil, fail(400, "执行结果无效")
+					}
+					for _, rawResult := range array(session, "commandResults") {
+						result := rawResult.(map[string]any)
+						if str(result, "id") == commandID {
+							result["status"], result["executedAt"] = status, s.now().UTC().Format(time.RFC3339Nano)
+							if status == "FAILED" {
+								result["detail"] = "电视未能执行，请重试或检查电视播放状态"
+							}
+						}
+					}
+					if status == "EXECUTED" && str(command, "action") == "AUDIO_ROLE" && str(command, "attemptId") == str(object(session, "playback"), "attemptId") {
+						object(session, "playback")["audioRole"] = command["role"]
+					}
+					commands = append(commands[:i], commands[i+1:]...)
+				} else {
+					commands = commands[i+1:]
+				}
 				acknowledged = true
 				break
 			}
@@ -67,7 +93,13 @@ func (s *Service) recordPlaybackEvent(ctx context.Context, tx store.DBTX, actor 
 				}
 				s.prefetchChanged(session, false, false)
 			}
-			return snapshot(session, actor), nil
+			return s.snapshot(session, actor), nil
+		}
+		if fair(session) && (boolean(playback, "terminal") || boolean(session, "manualStopped") && str(input, "state") != "IDLE") {
+			if err = s.save(ctx, tx, session); err != nil {
+				return nil, err
+			}
+			return s.snapshot(session, actor), nil
 		}
 		state, err := text(input, "state", 20)
 		if err != nil {
@@ -90,9 +122,16 @@ func (s *Service) recordPlaybackEvent(ctx context.Context, tx store.DBTX, actor 
 				return nil, err
 			}
 		}
+		if fair(session) && state == "IDLE" {
+			session["manualStopped"] = true
+		}
 		playback["state"] = state
 		playback["eventSeq"] = sequence
 		playback["positionMs"] = max(int64(0), number(input, "positionMs"))
+		playback["sampledAt"] = s.now().UTC().Format(time.RFC3339Nano)
+		if role := str(input, "audioRole"); role == "original" || role == "backing" {
+			playback["audioRole"] = role
+		}
 		for _, raw := range array(session, "queue") {
 			item := raw.(map[string]any)
 			if str(item, "id") == str(playback, "itemId") {
@@ -108,11 +147,18 @@ func (s *Service) recordPlaybackEvent(ctx context.Context, tx store.DBTX, actor 
 				}
 			}
 		}
+		if fair(session) && state == "ENDED" && !boolean(session, "manualStopped") {
+			playback["terminal"] = true
+			if err = s.advanceFair(ctx, tx, session, false); err != nil {
+				return nil, err
+			}
+			session["queueRevision"] = number(session, "queueRevision") + 1
+		}
 	}
 	if err = s.save(ctx, tx, session); err != nil {
 		return nil, err
 	}
 	_, progress := input["attemptId"]
 	s.prefetchChanged(session, false, progress)
-	return snapshot(session, actor), nil
+	return s.snapshot(session, actor), nil
 }

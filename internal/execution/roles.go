@@ -104,7 +104,7 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 		}
 		if str(job, "state") == "SUCCEEDED" && v["streams"] == nil {
 			if streams, ok := data["streams"].([]any); ok {
-				v["streams"] = streams
+				v["streams"] = audioOnly(streams)
 				if data["duration"] != nil {
 					v["duration"] = data["duration"]
 				}
@@ -167,10 +167,10 @@ func (s *Service) correctRoles(ctx context.Context, songID, original, backing st
 				continue
 			}
 			ids := map[string]bool{}
-			for _, stream := range array(decoded(job["result_json"])["streams"]) {
+			for _, stream := range audioOnly(decoded(job["result_json"])["streams"]) {
 				ids[str(obj(stream), "id")] = true
 			}
-			if len(ids) == 2 && ids[original] && ids[backing] {
+			if len(ids) >= 2 && ids[original] && ids[backing] {
 				valid = true
 				break
 			}
@@ -184,7 +184,7 @@ func (s *Service) correctRoles(ctx context.Context, songID, original, backing st
 			for _, raw := range array(status["streams"]) {
 				ids[str(obj(raw), "id")] = true
 			}
-			valid = str(status, "state") == "CONFIRMED" && len(ids) == 2 && ids[original] && ids[backing]
+			valid = str(status, "state") == "CONFIRMED" && len(ids) >= 2 && ids[original] && ids[backing]
 		}
 		if !valid {
 			return fail(409, "请先完成媒体探测或资料包目录核验后再标记音轨")
