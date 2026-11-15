@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -13,6 +14,9 @@ import tempfile
 from urllib.error import HTTPError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from apk_signature import release_certificate
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_APK = 256 << 20
@@ -160,8 +164,10 @@ def verify_apk(directory, platform, release, apksigner, aapt):
     if metadata.get("sha256") != digest or not isinstance(metadata.get("certificateSha256"), str) or not HEX.fullmatch(metadata["certificateSha256"]):
         raise ValueError("APK hash or certificate metadata invalid")
     signature = subprocess.run([apksigner, "verify", "--verbose", "--print-certs", str(apk)], capture_output=True, text=True)
-    certificates = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]+)", signature.stdout)
-    if signature.returncode or len(certificates) != 1 or certificates[0].lower() != metadata["certificateSha256"] or re.search(r"^Signer #\d+ certificate DN:.*CN=Android Debug", signature.stdout, re.M):
+    if signature.returncode:
+        raise ValueError("APK signature verification failed: " + platform)
+    certificate = release_certificate(signature.stdout)
+    if certificate != metadata["certificateSha256"]:
         raise ValueError("APK signature verification failed: " + platform)
     badging = subprocess.run([aapt, "dump", "badging", str(apk)], capture_output=True, text=True)
     match = re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", badging.stdout)
