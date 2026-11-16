@@ -8,25 +8,22 @@ Release 标签使用 `vMAJOR.MINOR.PATCH`，如 `v0.0.2`。Actions 自动注入 
 
 ## 配置
 
-在 Go 和 compute 仓库分别配置 Actions Variables 与 Secrets；二者独立发版。发布固定版本后，工作流将同一镜像内容推送至 GHCR、Docker Hub 和阿里云 ACR。
+在 Go 和 compute 仓库分别配置 Actions Variables 与 Secrets；二者独立发版。发布固定版本后，工作流将同一镜像内容推送至 GHCR 和 Docker Hub。
 
 | Actions Variable | 含义与示例 |
 | --- | --- |
 | `GHCR_NAMESPACE`（可选） | GitHub 用户或组织；默认当前仓库 owner 的小写名称，如 `mynora-dot` |
 | `DOCKERHUB_NAMESPACE` | Docker Hub 用户或组织 |
-| `ACR_REGISTRY` | ACR 控制台提供的实际仓库域名；不含协议、路径或末尾斜杠 |
-| `ACR_NAMESPACE` | ACR 实例内的命名空间，如 `mynora` |
 
-三个命名空间可不同，均填写小写名称，不填写完整镜像路径。ACR 域名应使用 GitHub runner 可访问的地址；配置缺失时会在构建前提示，不会静默跳过某个平台。
+两个命名空间可不同，均填写小写名称，不填写完整镜像路径。配置缺失时会在构建前提示，不会静默跳过某个平台。
 
 | Actions Secret | 用途 |
 | --- | --- |
 | `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN` | Docker Hub 登录账号及具有推送权限的访问令牌 |
-| `ACR_USERNAME`、`ACR_PASSWORD` | ACR 登录账号及仓库密码 |
 | `GHCR_TOKEN`、`GHCR_USERNAME`（可选） | 自定义 GHCR 凭据及账号；默认工作流 `GITHUB_TOKEN` 与 `github.actor` |
 | `CROSS_REPO_READ_TOKEN`（仅 Go 私有组件需要） | 读取前端、手机、TV 的私有 Release，只需选定组件仓库的 Contents: read 权限 |
 
-提前创建或授权 Docker Hub、ACR 命名空间及仓库；命名空间配置不会自动授予权限。跨 GitHub owner/org 发布按目标授权情况配置自定义 GHCR 凭据。凭据只放 Secrets；跨 GitHub 资产域名跳转时下载脚本移除 Authorization，凭据不进入构建上下文。
+提前创建或授权 Docker Hub 命名空间及仓库；命名空间配置不会自动授予权限。跨 GitHub owner/org 发布按目标授权情况配置自定义 GHCR 凭据。凭据只放 Secrets；跨 GitHub 资产域名跳转时下载脚本移除 Authorization，凭据不进入构建上下文。
 
 ## 发布与重试
 
@@ -42,9 +39,8 @@ Release 标签使用 `vMAJOR.MINOR.PATCH`，如 `v0.0.2`。Actions 自动注入 
 | --- | --- |
 | GitHub GHCR | `ghcr.io/<ghcr_namespace>/singverse:<VERSION>` |
 | Docker Hub | `docker.io/<dockerhub_namespace>/singverse:<VERSION>` |
-| 阿里云 ACR | `<acr_registry>/<acr_namespace>/singverse:<VERSION>` |
 
-主服务只发布数字版本 `<VERSION>` 和 `latest` 两类标签，两者都通过镜像清单包含 `linux/amd64`、`linux/arm64`。发布时复制完整索引及其引用的镜像层，不再额外发布架构标签；三家固定版本全部成功后更新 `latest`。已有历史标签不会自动删除，数字版本会随发布累积。
+主服务只发布数字版本 `<VERSION>` 和 `latest` 两类标签，两者都通过镜像清单包含 `linux/amd64`、`linux/arm64`。发布时复制完整索引及其引用的镜像层，不再额外发布架构标签；两家固定版本全部成功后更新 `latest`。已有历史标签不会自动删除，数字版本会随发布累积。
 
 compute 仓库独立发布 cuda、rocm、openvino、rknn 四种运行库，每种仅有 `<COMPUTE_VERSION>-<runtime>` 与 `latest-<runtime>`，一个版本共 8 个标签，不额外发布架构标签或 CPU 镜像。CPU 是四种加速镜像内置的降级环境；Mac ARM64 原生安装包和 SHA-256 文件附加到 compute 的同一 Release，不占 Docker 标签。
 
@@ -58,10 +54,14 @@ compute 仓库独立发布 cuda、rocm、openvino、rknn 四种运行库，每�
 2. 复用本 Release 已有 components.lock.json，或一次解析前端与两端正式包。
 3. 验证资产摘要、真实 APK 签名/包信息；保存锁清单到 Release，不覆盖已有附件。
 4. 上传共同构建输入，amd64/arm64 分别构建 OCI 归档；不执行自动测试、lint 或容器运行验收。
-5. 使用同一份 OCI 产物向三平台发布固定版本。固定 tag 已有不同内容即失败，全部通过后更新 latest。
+5. 使用同一份 OCI 产物向双仓库发布固定版本。固定 tag 已有不同内容即失败，全部通过后更新 latest。
 
 本地 make docker-build 每次获取最新前端和两端正式包；指定 COMPONENT_LOCK 可复用既定输入。更换任何组件形成新镜像内容时，使用新的 Go 产品版本。首次 Release 顺序见[多仓库说明](../../docs/multi-repository.md)。
 
 检查工作流文件不代表远程 CI 或正式镜像已经发布。
 
-每架构 OCI 归档同时保存在平台 Release，重试校验归档摘要后复用，防止构建时间等变化使固定镜像内容不同；Actions 临时 artifact 过期后仍可恢复。发布过程中不得手动删除或替换组件锁及 OCI 归档。
+每架构 OCI 归档同时保存在平台 Release，重试校验归档摘要后复用，防止构建时间等变化使固定镜像内容不同；发布任务直接从 Release 恢复 OCI，不再重复上传 OCI 到 Actions artifacts；只有共同组件输入仍使用保留 7 天的临时 artifact。发布过程中不得手动删除或替换组件锁及 OCI 归档。
+
+Docker 构建使用 `ghcr.io/<GHCR_NAMESPACE>/singverse-buildcache:<arch>` 的独立 registry 层缓存，按架构隔离并使用 `mode=max`。现有 GHCR 凭据同时用于缓存包；默认令牌的 build job 获得 `packages: write`，已有包需授权本仓库 Actions，跨 owner 凭据也需覆盖缓存包。正式 `singverse` 仍只有数字版本与 `latest`。缓存缺失时正常构建，缓存导出失败不阻断正式产物；Release 归档成功后才进入正式推送。Go modules 存在可导出的普通构建层内，版本参数在依赖下载之后注入。
+
+主服务镜像较小，不执行耗时的预装 SDK 清理；准备组件的 job 保留 Android SDK/JDK。发布 job 优先使用 runner 预装 Skopeo，缺失时才安装。每个 job 使用独立的临时 runner，磁盘和本地缓存不跨 job 共享。

@@ -21,11 +21,11 @@
 
 失败时保留日志、卷和备份。旧镜像不一定能读取新迁移后的数据库；回退需要恢复匹配的数据及密钥备份，不直接把新数据库交给旧镜像。
 
-## 切换 GHCR、Docker Hub 或阿里云
+## 切换 GHCR 或 Docker Hub
 
 先确认目标平台的实际命名空间已由发布 Action 成功推送所需版本。固定 `SINGVERSE_VERSION`、`COMPUTE_VERSION` 和 `COMPUTE_RUNTIME`，核对目标镜像 digest 与原仓库一致；不要在切换仓库时同时使用浮动 `latest` 升级。启用同机 compute 时，两类镜像必须都存在于所选 `IMAGE_PREFIX` 下。
 
-私有仓库先执行 `docker login <仓库域名>`，然后只修改 `.env` 的 `IMAGE_PREFIX` 为 `ghcr.io/<空间>`、`docker.io/<空间>` 或 `<ACR域名>/<空间>`。保留原 Compose 项目名、文件组合、绑定目录和命名卷，按原组合执行 `pull`、`up -d --no-build --wait`；默认镜像组合可用 `make docker-pull docker-image-up`。镜像仓库“项目空间”不是 Compose 项目名，不要为切换仓库设置新的 `COMPOSE_PROJECT_NAME` 或 `-p`。
+私有仓库先执行 `docker login <仓库域名>`，然后只修改 `.env` 的 `IMAGE_PREFIX` 为 `ghcr.io/<空间>` 或 `docker.io/<空间>`。保留原 Compose 项目名、文件组合、绑定目录和命名卷，按原组合执行 `pull`、`up -d --no-build --wait`；默认镜像组合可用 `make docker-pull docker-image-up`。镜像仓库“项目空间”不是 Compose 项目名，不要为切换仓库设置新的 `COMPOSE_PROJECT_NAME` 或 `-p`。
 
 检查健康状态、登录、媒体与计算节点连接后完成切换。若仅更换相同 digest 的镜像地址失败，可以恢复原 `IMAGE_PREFIX` 并重新运行原组合；若同时升级了版本，遵循上面的数据与密钥恢复规则。
 

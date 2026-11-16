@@ -5,15 +5,16 @@ ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 ARG TARGETOS
 ARG TARGETARCH
-ARG SINGVERSE_VERSION=0.0.0
 WORKDIR /workspace
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# Export module files as a regular layer so registry cache works on fresh runners.
+RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 COPY .build/platform/frontend/ ./internal/web/dist/
 RUN test -s internal/web/dist/admin/index.html && test -s internal/web/dist/party/index.html && test -s internal/web/dist/downloads/index.html
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+ARG SINGVERSE_VERSION=0.0.0
+RUN --mount=type=cache,target=/root/.cache/go-build \
  CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
  -ldflags "-s -w -X main.version=${SINGVERSE_VERSION}" -o /out/singverse ./cmd/singverse
 RUN case "$TARGETARCH" in \

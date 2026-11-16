@@ -90,7 +90,7 @@ make docker-down
 
 ### 选择镜像仓库和项目空间
 
-正式镜像由 GitHub Actions 同步推送到 GHCR、Docker Hub、阿里云 ACR。发布者先配置 Actions Variables 与 Secrets，再发布指向新源码的正式 GitHub Release；版本直接来自标签，普通 push/PR 不触发。完整参数和凭据见 [PUBLISHING](PUBLISHING.md)。
+正式镜像由 GitHub Actions 同步推送到 GHCR、Docker Hub。发布者先配置 Actions Variables 与 Secrets，再发布指向新源码的正式 GitHub Release；版本直接来自标签，普通 push/PR 不触发。完整参数和凭据见 [PUBLISHING](PUBLISHING.md)。
 
 部署时把 `.env` 的 `IMAGE_PREFIX` 改为这次实际发布的前缀，只选择其中一个：
 
@@ -98,7 +98,6 @@ make docker-down
 | --- | --- |
 | GitHub GHCR | `ghcr.io/<ghcr_namespace>` |
 | Docker Hub | `docker.io/<dockerhub_namespace>` |
-| 阿里云 ACR | `<acr_registry>/<acr_namespace>` |
 
 前缀不含镜像名、tag 或末尾斜杠。主服务最终地址为 `${IMAGE_PREFIX}/singverse:${SINGVERSE_VERSION}`，可选计算节点为 `${IMAGE_PREFIX}/singverse-compute:${COMPUTE_VERSION}-${COMPUTE_RUNTIME}`。同机部署两类镜像时，发布者应将它们放入对应平台的同一空间；独立节点可单独配置前缀。
 
