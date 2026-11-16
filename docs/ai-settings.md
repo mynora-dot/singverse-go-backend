@@ -4,9 +4,11 @@ AI 与助手是管理员配置入口，不包含分类任务、审核或助手�
 
 ## 模型与搜索服务
 
-每类最多保存 100 套服务，同厂商可以保存多套。每套模型记录名称、厂商、协议、地址、手填模型 ID、密钥、启用状态、超时和结构化输出模式。超时范围 5～180 秒；预设不限制模型列表，也不证明特定账号或模型支持结构化输出。
+每类最多保存 100 套服务，同厂商可以保存多套。每套模型记录名称、厂商、协议、地址、模型 ID、密钥、启用状态、超时和结构化输出模式。模型 ID 支持从服务获取后搜索选择，也可手动输入；获取列表不要求先保存名称或选择模型。超时范围 5～180 秒；预设不限制模型列表，也不证明特定账号或模型支持结构化输出。
 
-预设包含 OpenAI、Anthropic、Gemini、DeepSeek、通义千问、豆包、智谱、月之暗面、硅基流动、OpenRouter、Ollama、LM Studio 和通用兼容接口。厂商预设与协议分离；模型调用支持 Responses、Chat Completions、Anthropic Messages、Gemini GenerateContent。除 Gemini 使用 API 版本基础地址并追加 `/models/{model}:generateContent` 外，填写完整调用地址。
+预设包含 OpenAI、Anthropic、Gemini、DeepSeek、通义千问、豆包、智谱、月之暗面、硅基流动、OpenRouter、Ollama、LM Studio 和通用兼容接口。厂商预设与协议分离；模型调用支持 Responses、Chat Completions、Anthropic Messages、Gemini GenerateContent。模型地址可填写主机地址、带版本的 API 基础地址（如 `/v1`）或完整调用地址。根地址默认补 `/v1`，Gemini 补 `/v1beta`；版本路径依协议补 `/chat/completions`、`/responses` 或 `/messages`，Gemini 保留版本基础路径。现有完整地址、网关前缀及自定义操作路径保留；已知操作路径与协议不匹配时明确报错。普通生成、分类和助手工具适配共用相同规则，旧快照中的基础地址也能正确调用；搜索地址仍为完整接口地址。表单显示实际请求地址，超时和结构化模式放在“更多设置”。
+
+“获取模型列表”使用当前表单的协议、地址和密钥，经 Go 请求服务的模型目录；同一服务可安全复用已保存密钥，地址、厂商或协议改变时须重填或明确清除。基础地址和对应完整地址视为相同目标。列表支持 Chat Completions / Responses 的 `data` 数组、Anthropic Models 分页及 Gemini Models 分页，Gemini 排除明确不支持生成的模型。结果去重排序，最多 10 页、2000 个模型、单页 4 MiB，并由配置超时约束整个请求；超出时标明尚有其他模型。获取失败或空列表仍可手填，不清除现有选择；切换地址、协议或密钥以及关闭表单后，迟到结果不会进入新草稿。目录仅提供候选 ID，不证明模型的工具调用或结构化输出能力。
 
 结构化输出模式显式保存为 `JSON_SCHEMA` 或 `JSON_OBJECT`；Anthropic 原生仅支持 Schema。Schema 由业务调用方提供，JSON 模式附带相同结构要求；所有分类结果继续执行业务校验，拒绝未知歌曲/标签、非法字段和不完整输出。Anthropic 原生 Schema 不接受 maxItems，适配层将其移入描述并由分类结果校验执行数量上限，仍使用原生 Schema 模式。请求失败不自动切换协议或降级输出模式。普通生成测试成功不代表分类能力成功，分类结构化验证不代表分类准确率。
 
@@ -26,11 +28,11 @@ AI 与助手是管理员配置入口，不包含分类任务、审核或助手�
 
 读取只返回 `hasKey`，不回显密钥或密文。留空保留，明确清除才删除；更换厂商、协议、地址时要求重填或清除原密钥。密钥复用主密钥加密，按服务保存凭据用途并据此隔离；丢失主密钥时拒绝带加密配置启动。备份数据库时须同时安全备份主密钥。
 
-Go 发起所有外部请求，保留 TLS 校验、禁止重定向、限制 128 KB 响应及配置超时。远程使用 HTTPS，HTTP 仅允许本机/局域网；地址禁止凭据、查询参数和 fragment。不要将此入口暴露给非管理员。错误不回传上游响应正文或凭据。测试按服务限制并发；HTTP 429 至少冷却 60 秒。
+Go 发起所有外部请求，保留 TLS 校验、禁止重定向，普通响应限制 128 KB，模型目录单页限制 4 MiB，并遵守配置超时。远程使用 HTTPS，HTTP 仅允许本机/局域网；地址禁止凭据、查询参数和 fragment。不要将此入口暴露给非管理员。错误不回传上游响应正文或凭据。测试按服务限制并发；HTTP 429 至少冷却 60 秒。
 
 ## 接口与验证
 
-管理员会话和 CSRF 保护 `/api/v1/ai`：厂商目录 `GET /providers`；模型 `/models` 与搜索 `/search-services` 提供列表、新建、按 ID 修改/删除及 `POST /{id}/test`；功能 `/features` 提供列表和 `PUT /{id}`。模型测试 mode 为 `generation` 或 `classification`；搜索测试发送 query。完整字段见 OpenAPI。
+管理员会话和 CSRF 保护 `/api/v1/ai`：厂商目录 `GET /providers`；模型 `/models` 与搜索 `/search-services` 提供列表、新建、按 ID 修改/删除及 `POST /{id}/test`；`POST /models/discover` 接受未保存的 provider、protocol、endpoint、apiKey、clearKey、timeoutSeconds，编辑已有服务时带 serviceId/revision；仅获取候选，不保存配置或生成文本。功能 `/features` 提供列表和 `PUT /{id}`。模型测试 mode 为 `generation`、`tools` 或 `classification`；搜索测试发送 query。完整字段见 OpenAPI。
 
 隔离 HTTP 测试验证四种模型协议、六种搜索协议、JSON 模式、鉴权失败、限流冷却、超时、大小上限、非法响应、脱敏、默认搜索、绑定保护、迁移和快照。模拟协议测试与真实厂商联调分开记录，见 [验证记录](verification.md)。
 

@@ -37,6 +37,7 @@ type failure struct {
 	detail string
 }
 
+func (e *failure) StatusCode() int         { return e.status }
 func (e *failure) Error() string           { return e.detail }
 func fail(status int, detail string) error { return &failure{status, detail} }
 
@@ -231,27 +232,59 @@ func (s *Service) create(ctx context.Context, in Create, source, actorID string)
 	})
 	return out, err
 }
-func (s *Service) Update(ctx context.Context, id string, in Update) (Feedback, error) {
-	var out Feedback
+func validateUpdate(in Update) (string, error) {
 	if in.Revision < 1 || !validStatus(in.Status) {
-		return out, fail(400, "处理状态或修订号无效")
+		return "", fail(400, "处理状态或修订号无效")
 	}
 	note, err := text(in.HandlingNote, 2000, true, false)
 	if err != nil {
-		return out, err
+		return "", err
 	}
 	if (in.Status == "RESOLVED") != (in.ResolvedSongID != nil) {
-		return out, fail(400, "仅已补齐反馈必须关联曲库歌曲")
+		return "", fail(400, "仅已补齐反馈必须关联曲库歌曲")
 	}
 	if in.ResolvedSongID != nil {
 		if strings.TrimSpace(*in.ResolvedSongID) == "" || search.UTF16Length(*in.ResolvedSongID) > 64 {
-			return out, fail(400, "请选择有效的关联歌曲")
+			return "", fail(400, "请选择有效的关联歌曲")
 		}
 		for _, r := range *in.ResolvedSongID {
 			if unicode.IsControl(r) {
-				return out, fail(400, "请选择有效的关联歌曲")
+				return "", fail(400, "请选择有效的关联歌曲")
 			}
 		}
+	}
+	return note, nil
+}
+
+// PreviewUpdate validates the same input as Update and reads the exact feedback
+// and associated song to display before approval. It never changes either.
+func (s *Service) PreviewUpdate(ctx context.Context, id string, in Update) (map[string]any, error) {
+	if _, err := validateUpdate(in); err != nil {
+		return nil, err
+	}
+	before, err := s.find(ctx, s.db, id)
+	if err != nil {
+		return nil, err
+	}
+	if before.Revision != in.Revision {
+		return nil, fail(409, "反馈已被更新，请重新打开后处理")
+	}
+	preview := map[string]any{"feedback": before.Feedback}
+	if in.ResolvedSongID != nil {
+		song, err := s.songs(ctx, s.db, *in.ResolvedSongID)
+		if err != nil {
+			return nil, fail(409, "关联歌曲不存在或已下架，请重新选择")
+		}
+		preview["song"] = map[string]any{"id": *in.ResolvedSongID, "title": song.Title, "artists": song.Artists}
+	}
+	return preview, nil
+}
+
+func (s *Service) Update(ctx context.Context, id string, in Update) (Feedback, error) {
+	var out Feedback
+	note, err := validateUpdate(in)
+	if err != nil {
+		return out, err
 	}
 	err = store.WithinTx(ctx, s.db, func(tx store.DBTX) error {
 		if _, e := tx.ExecContext(ctx, s.q["lock"]); e != nil {

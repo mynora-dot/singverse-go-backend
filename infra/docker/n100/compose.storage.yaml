@@ -1,0 +1,17 @@
+# Optional: copy to compose.override.yaml beside compose.yaml.
+# Docker Compose then applies these mounts to every ordinary command.
+services:
+  singverse-go-backend:
+    volumes:
+      - type: bind
+        source: '${SINGVERSE_MEDIA_PATH:?Set an existing absolute NAS media directory in .env}'
+        target: /media
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: '${SINGVERSE_DOWNLOAD_PATH:?Set an existing absolute NAS downloads directory in .env}'
+        target: /downloads
+        read_only: false
+        bind:
+          create_host_path: false

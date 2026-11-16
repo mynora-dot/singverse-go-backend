@@ -22,8 +22,9 @@ type problem struct {
 	detail string
 }
 
-func (p *problem) Error() string { return p.detail }
-func bad(detail string) error    { return &problem{400, detail} }
+func (p *problem) StatusCode() int { return p.status }
+func (p *problem) Error() string   { return p.detail }
+func bad(detail string) error      { return &problem{400, detail} }
 func (s *Service) report(c *gin.Context, e error) {
 	var p *problem
 	if errors.As(e, &p) {

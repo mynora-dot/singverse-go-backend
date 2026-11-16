@@ -73,6 +73,8 @@ make docker-macos-up
 
 ## 正式发行包部署
 
+N100 Linux NAS 使用 Docker Hub 预构建镜像时，可直接复制 [N100 独立部署目录](n100/README.md)，其中包含双容器 Compose、OpenVINO/QSV 设备映射、8GB/16GB 资源建议和可选本地曲库挂载。
+
 ```sh
 cp .env.example .env
 # 按部署需要修改占位配置；已有 .env 不覆盖。

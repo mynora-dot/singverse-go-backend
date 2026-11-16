@@ -75,6 +75,10 @@ type privateKey struct{}
 var client = &http.Client{Transport: transport(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 func send(ctx context.Context, endpoint string, query url.Values, headers map[string]string, body any, timeout int) (map[string]any, error) {
+	return sendLimited(ctx, endpoint, query, headers, body, timeout, 128000)
+}
+
+func sendLimited(ctx context.Context, endpoint string, query url.Values, headers map[string]string, body any, timeout, limit int) (map[string]any, error) {
 	u, e := Endpoint(ctx, endpoint)
 	if e != nil {
 		return nil, e
@@ -126,11 +130,14 @@ func send(ctx context.Context, endpoint string, query url.Values, headers map[st
 	if status == 429 {
 		return nil, failure(429, "服务限流（HTTP 429），至少冷却 60 秒后重试")
 	}
-	if status < 200 || status >= 300 {
-		return nil, failure(status, "服务请求失败（HTTP "+format(status)+"），请检查协议、地址及 JSON Schema / JSON 模式支持")
+	if status == 404 {
+		return nil, failure(404, "服务接口不存在（HTTP 404），请检查服务地址与接口协议")
 	}
-	b, e := io.ReadAll(io.LimitReader(response.Body, 128001))
-	if e != nil || len(b) > 128000 {
+	if status < 200 || status >= 300 {
+		return nil, failure(status, "服务请求失败（HTTP "+format(status)+"），请检查协议及服务配置")
+	}
+	b, e := io.ReadAll(io.LimitReader(response.Body, int64(limit)+1))
+	if e != nil || len(b) > limit {
 		return nil, failure(502, "服务连接或响应格式无效，请检查网络、协议及响应大小")
 	}
 	var result map[string]any
@@ -162,7 +169,10 @@ func (s *Service) Generate(ctx context.Context, c Snapshot, instructions, input 
 	headers := map[string]string{}
 	structured := schema != nil
 	strict := c.OutputMode == "JSON_SCHEMA"
-	endpoint := c.Endpoint
+	endpoint, e := ModelEndpoint(c.Protocol, c.Endpoint)
+	if e != nil {
+		return "", e
+	}
 	if structured && !strict {
 		b, e := json.Marshal(schema)
 		if e != nil {

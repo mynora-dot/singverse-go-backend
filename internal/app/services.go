@@ -5,6 +5,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/mynora-dot/singverse-go-backend/internal/ai"
+	"github.com/mynora-dot/singverse-go-backend/internal/assistant"
 	"github.com/mynora-dot/singverse-go-backend/internal/auth"
 	"github.com/mynora-dot/singverse-go-backend/internal/background"
 	"github.com/mynora-dot/singverse-go-backend/internal/catalog"
@@ -38,6 +39,7 @@ type applicationServices struct {
 	downloads    *downloads.Service
 	missingSongs *feedback.Service
 	overview     *overview.Service
+	assistant    *assistant.Service
 }
 
 func (a *Application) initializeServices(cfg config.Config, db *sqlx.DB, logger *slog.Logger) (*applicationServices, error) {
@@ -139,7 +141,7 @@ func (a *Application) initializeServices(cfg config.Config, db *sqlx.DB, logger 
 		Feedback:   overviewFeedback(missingSongs),
 		Log:        logger,
 	})
-	return &applicationServices{
+	services := &applicationServices{
 		releases:     clientrelease.New(cfg.ClientReleaseDirectory, cfg.TVReleaseDirectory),
 		accounts:     accounts,
 		media:        media,
@@ -154,5 +156,11 @@ func (a *Application) initializeServices(cfg config.Config, db *sqlx.DB, logger 
 		downloads:    downloadManager,
 		missingSongs: missingSongs,
 		overview:     overviewService,
-	}, nil
+	}
+	services.assistant, err = assistant.New(db, models, assistantTools(services))
+	if err != nil {
+		return nil, err
+	}
+	a.closers = append(a.closers, services.assistant.Close)
+	return services, nil
 }

@@ -148,6 +148,13 @@ func validate(kind string, v ServiceInput) error {
 	return nil
 }
 func (s *Service) Save(ctx context.Context, kind, id string, v ServiceInput) (ServiceView, error) {
+	if kind == "MODEL" {
+		endpoint, err := ModelEndpoint(v.Protocol, v.Endpoint)
+		if err != nil {
+			return ServiceView{}, err
+		}
+		v.Endpoint = endpoint
+	}
 	if e := validate(kind, v); e != nil {
 		return ServiceView{}, e
 	}
@@ -193,7 +200,11 @@ func (s *Service) Save(ctx context.Context, kind, id string, v ServiceInput) (Se
 		}
 		secret := old.Secret
 		fresh := v.APIKey != nil && strings.TrimSpace(*v.APIKey) != ""
-		if id != "" && (old.Provider != v.Provider || old.Protocol != v.Protocol || old.Endpoint != v.Endpoint) && secret != nil && !v.ClearKey && !fresh {
+		oldEndpoint := old.Endpoint
+		if kind == "MODEL" {
+			oldEndpoint, _ = ModelEndpoint(old.Protocol, old.Endpoint)
+		}
+		if id != "" && (old.Provider != v.Provider || old.Protocol != v.Protocol || oldEndpoint != v.Endpoint) && secret != nil && !v.ClearKey && !fresh {
 			return failure(400, "更换厂商、协议或地址时请重填密钥或明确清除")
 		}
 		create := id == ""
@@ -286,8 +297,20 @@ func (s *Service) Bind(ctx context.Context, id string, v Feature) (Feature, erro
 		}
 		switch id {
 		case "assistant":
-			if v.ModelServiceID != nil || v.SearchServiceID != nil {
-				return failure(400, "助手模型与工具能力尚未开放配置")
+			for _, binding := range []struct {
+				id   *string
+				kind string
+			}{{v.ModelServiceID, "MODEL"}, {v.SearchServiceID, "SEARCH"}} {
+				if binding.id == nil {
+					continue
+				}
+				r, e := s.required(ctx, tx, *binding.id)
+				if e != nil {
+					return e
+				}
+				if r.Kind != binding.kind || !r.Enabled {
+					return failure(400, "请选择已启用的对应服务")
+				}
 			}
 			if !contains(v.DisplayMode, "PET", "CHAT") || !contains(v.PetID, pets...) {
 				return failure(400, "未知助手形态或宠物形象")

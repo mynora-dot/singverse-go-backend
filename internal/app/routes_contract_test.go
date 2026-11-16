@@ -45,6 +45,15 @@ func TestPublicRouteContractCoverage(t *testing.T) {
 		actual[r.Method+" "+normalize(r.Path)] = true
 	}
 	missing := []string{}
+	for path, methods := range contract.Paths {
+		if strings.HasPrefix(path, "/api/v1/ai/assistant/") {
+			for method := range methods {
+				if !actual[strings.ToUpper(method)+" "+normalize(path)] {
+					missing = append(missing, strings.ToUpper(method)+" "+path)
+				}
+			}
+		}
+	}
 	retired := 0
 	for _, op := range baseline.PublicOperations {
 		if _, present := contract.Paths[op.Path][strings.ToLower(op.Method)]; !present {

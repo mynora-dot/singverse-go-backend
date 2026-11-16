@@ -35,6 +35,7 @@ type failure struct {
 	detail string
 }
 
+func (e *failure) StatusCode() int         { return e.status }
 func (e *failure) Error() string           { return e.detail }
 func fail(status int, detail string) error { return &failure{status, detail} }
 
@@ -72,6 +73,8 @@ type Service struct {
 	closeOnce   sync.Once
 	discoveryMu sync.Mutex
 	discovery   interface{ Shutdown() }
+	snapshotMu  sync.Mutex
+	waiters     map[string]map[chan struct{}]struct{}
 }
 
 func New(db *sqlx.DB, dialect string, cfg config.Config, lib Library, log *slog.Logger) (*Service, error) {
@@ -261,6 +264,8 @@ func (s *Service) save(ctx context.Context, tx store.DBTX, v document) error {
 		return fail(409, "状态已变化，请刷新后重试")
 	}
 	v["revision"] = number(v, "revision") + 1
+	key := str(v, "id")
+	s.postCommit = append(s.postCommit, func() { s.wakeSnapshots(key) })
 	return nil
 }
 func (s *Service) lock(ctx context.Context, tx store.DBTX, key string) error {
@@ -406,6 +411,7 @@ func (s *Service) snapshot(session, actor document) document {
 	v := clone(session)
 	delete(v, "receipts")
 	v["stateRevision"] = number(session, "revision")
+	v["snapshotWaitMs"] = maxSnapshotWaitMs
 	v["revision"] = number(session, "queueRevision")
 	v["actorId"] = actor["id"]
 	v["host"] = host(actor)

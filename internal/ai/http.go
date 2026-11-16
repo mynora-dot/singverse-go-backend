@@ -33,6 +33,14 @@ func (s *Service) reply(c *gin.Context, status int, v any, e error) {
 }
 func (s *Service) Register(r *gin.Engine) {
 	r.GET("/api/v1/ai/providers", func(c *gin.Context) { s.reply(c, 200, Providers, nil) })
+	r.POST("/api/v1/ai/models/discover", func(c *gin.Context) {
+		var v ModelDiscoveryInput
+		if !httpx.Decode(c, &v, 20000) {
+			return
+		}
+		result, err := s.DiscoverModels(c.Request.Context(), v)
+		s.reply(c, 200, result, err)
+	})
 	for _, route := range []struct{ path, kind string }{{"models", "MODEL"}, {"search-services", "SEARCH"}} {
 		p, k := "/api/v1/ai/"+route.path, route.kind
 		r.GET(p, func(c *gin.Context) { v, e := s.List(c.Request.Context(), k); s.reply(c, 200, v, e) })
@@ -108,6 +116,9 @@ func (s *Service) Register(r *gin.Engine) {
 							e = s.tester(c.Request.Context(), snap)
 						}
 						out.Message = "分类结构化输出验证通过；不代表分类准确率"
+					case "tools":
+						e = s.CheckToolCalling(c.Request.Context(), snap)
+						out.Message = "流式工具调用与回执验证通过；未执行业务操作"
 					default:
 						e = failure(400, "未知模型测试类型")
 					}

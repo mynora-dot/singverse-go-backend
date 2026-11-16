@@ -9,6 +9,9 @@ import (
 )
 
 func (s *Service) Create(ctx context.Context, in BatchInput) (map[string]any, error) {
+	return s.createBatch(ctx, in, "", "")
+}
+func (s *Service) createBatch(ctx context.Context, in BatchInput, expected, requestID string) (map[string]any, error) {
 	if len(in.TrackIDs) == 0 || len(in.TrackIDs) > 1000 {
 		return nil, bad("每批请选择 1–1000 首歌曲")
 	}
@@ -33,6 +36,24 @@ func (s *Service) Create(ctx context.Context, in BatchInput) (map[string]any, er
 	e = s.transaction(ctx, func(tx store.DBTX) error {
 		if e := s.lock(ctx, tx); e != nil {
 			return e
+		}
+		if requestID != "" {
+			old, e := s.row(ctx, tx, "batch", map[string]any{"id": requestID})
+			if e != nil {
+				return e
+			}
+			if old != nil {
+				batch, e := s.batchView(ctx, tx, old)
+				out = map[string]any{"batch": batch, "recovered": true}
+				return e
+			}
+			preview, e := s.downloadPreview(ctx, tx, in)
+			if e != nil {
+				return e
+			}
+			if str(preview, "revision") != expected {
+				return conflict("下载对象、音源或保存位置已变化，请重新确认")
+			}
 		}
 		target, script, e := s.requireSource(ctx, tx)
 		if e != nil {
@@ -95,6 +116,9 @@ func (s *Service) Create(ctx context.Context, in BatchInput) (map[string]any, er
 			return bad("批次名称最多 200 个字")
 		}
 		id := uuid()
+		if requestID != "" {
+			id = requestID
+		}
 		if _, e = s.exec(ctx, tx, "insertBatch", map[string]any{"id": id, "name": name, "sourceId": source, "path": root, "scriptId": script["id"], "quality": quality, "now": now()}); e != nil {
 			return e
 		}
@@ -218,39 +242,46 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 	return nil
 }
 func (s *Service) Retry(ctx context.Context, id string) (map[string]any, error) {
-	row, e := s.row(ctx, s.db, "batch", map[string]any{"id": id})
+	in, tracks, e := s.retryInput(ctx, id)
 	if e != nil {
 		return nil, e
 	}
+	if e = s.remember(ctx, tracks); e != nil {
+		return nil, e
+	}
+	return s.Create(ctx, in)
+}
+func (s *Service) retryInput(ctx context.Context, id string) (BatchInput, []Track, error) {
+	row, e := s.row(ctx, s.db, "batch", map[string]any{"id": id})
+	if e != nil {
+		return BatchInput{}, nil, e
+	}
 	if row == nil {
-		return nil, bad("下载记录不存在")
+		return BatchInput{}, nil, bad("下载记录不存在")
 	}
 	items, e := s.rows(ctx, s.db, "retryItems", map[string]any{"id": id})
 	if e != nil {
-		return nil, e
+		return BatchInput{}, nil, e
 	}
 	if len(items) == 0 {
-		return nil, bad("此批次没有可重试的歌曲")
+		return BatchInput{}, nil, bad("此批次没有可重试的歌曲")
 	}
 	tracks := []Track{}
 	ids := []string{}
 	for _, r := range items {
 		t, e := parseTrack(str(r, "track_json"))
 		if e != nil {
-			return nil, e
+			return BatchInput{}, nil, e
 		}
 		tracks = append(tracks, t)
 		ids = append(ids, t.ID)
-	}
-	if e = s.remember(ctx, tracks); e != nil {
-		return nil, e
 	}
 	name := str(row, "name")
 	for search.UTF16Length(name) > 190 {
 		r := []rune(name)
 		name = string(r[:len(r)-1])
 	}
-	return s.Create(ctx, BatchInput{TrackIDs: ids, Quality: str(row, "quality"), Name: name + " · 重试"})
+	return BatchInput{TrackIDs: ids, Quality: str(row, "quality"), Name: name + " · 重试"}, tracks, nil
 }
 func (s *Service) finish(ctx context.Context, tx store.DBTX, id, state, quality, path, song, contentHash, message string) error {
 	old, e := s.row(ctx, tx, "item", map[string]any{"id": id})

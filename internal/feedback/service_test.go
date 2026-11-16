@@ -68,6 +68,31 @@ func testIdempotentConcurrentSubmission(t *testing.T, s *Service) {
 func TestRevisionAndResolution(t *testing.T) {
 	testRevisionAndResolution(t, fixture(t))
 }
+func TestUpdatePreviewIsReadOnlyAndIncludesResolvedSong(t *testing.T) {
+	s := fixture(t)
+	ctx := context.Background()
+	v, err := s.Create(ctx, input())
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Update{Revision: 1, Status: "RESOLVED", HandlingNote: ptr("已补齐"), ResolvedSongID: ptr("existing")}
+	preview, err := s.PreviewUpdate(ctx, v.ID, in)
+	if err != nil || preview["song"].(map[string]any)["title"] != "已补齐歌曲" {
+		t.Fatal(preview, err)
+	}
+	after, err := s.Get(ctx, v.ID)
+	if err != nil || after.Revision != v.Revision || after.Status != v.Status || after.ResolvedSongID != nil {
+		t.Fatal("preview changed feedback", after, err)
+	}
+	in.ResolvedSongID = ptr("missing")
+	if _, err = s.PreviewUpdate(ctx, v.ID, in); err == nil {
+		t.Fatal("missing resolved song accepted")
+	}
+	in.ResolvedSongID = nil
+	if _, err = s.PreviewUpdate(ctx, v.ID, in); err == nil {
+		t.Fatal("invalid resolution accepted")
+	}
+}
 func TestMySQLRevisionAndResolution(t *testing.T) {
 	db, _ := testutil.MySQLDatabase(t)
 	testRevisionAndResolution(t, fixtureDB(t, db))

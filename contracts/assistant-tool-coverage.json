@@ -1,0 +1,776 @@
+{
+  "version": 1,
+  "framework": "Eino ADK v0.9.23",
+  "policy": "READ executes directly; CONFIRM persists a frozen preview and waits for server-validated approval; FORM only returns navigation. No tools accept credentials or file content.",
+  "tools": [
+    {
+      "name": "songs_search",
+      "title": "查询曲库歌曲",
+      "group": "曲库",
+      "page": "/library/songs",
+      "mode": "READ"
+    },
+    {
+      "name": "song_get",
+      "title": "查询歌曲详情",
+      "group": "曲库",
+      "page": "/library/songs",
+      "mode": "READ"
+    },
+    {
+      "name": "playlists_list",
+      "title": "查询歌单",
+      "group": "曲库",
+      "page": "/library/playlists",
+      "mode": "READ"
+    },
+    {
+      "name": "playlist_get",
+      "title": "查看歌单歌曲",
+      "group": "曲库",
+      "page": "/library/playlists",
+      "mode": "READ"
+    },
+    {
+      "name": "tags_list",
+      "title": "查询分类标签",
+      "group": "曲库",
+      "page": "/library/classification",
+      "mode": "READ"
+    },
+    {
+      "name": "favorites_list",
+      "title": "查询收藏歌曲",
+      "group": "曲库",
+      "page": "/library/favorites",
+      "mode": "READ"
+    },
+    {
+      "name": "artists_list",
+      "title": "查询歌手档案",
+      "group": "曲库",
+      "page": "/library/artists",
+      "mode": "READ"
+    },
+    {
+      "name": "sources_list",
+      "title": "查询媒体库",
+      "group": "加歌",
+      "page": "/library/media",
+      "mode": "READ"
+    },
+    {
+      "name": "source_get",
+      "title": "查询媒体库详情",
+      "group": "加歌",
+      "page": "/library/media",
+      "mode": "READ"
+    },
+    {
+      "name": "filename_parse",
+      "title": "预览文件名识别",
+      "group": "加歌",
+      "page": "/library/media/recognition",
+      "mode": "READ"
+    },
+    {
+      "name": "downloads_search",
+      "title": "搜索可下载歌曲",
+      "group": "加歌",
+      "page": "/library/downloads",
+      "mode": "READ"
+    },
+    {
+      "name": "downloads_share_preview",
+      "title": "预览平台分享链接",
+      "group": "加歌",
+      "page": "/library/downloads",
+      "mode": "READ"
+    },
+    {
+      "name": "downloads_status",
+      "title": "查询下载音源状态",
+      "group": "加歌",
+      "page": "/library/downloads",
+      "mode": "READ"
+    },
+    {
+      "name": "downloads_batches",
+      "title": "查询下载批次",
+      "group": "任务",
+      "page": "/library/downloads",
+      "mode": "READ"
+    },
+    {
+      "name": "downloads_items",
+      "title": "查询下载批次明细",
+      "group": "任务",
+      "page": "/library/downloads",
+      "mode": "READ"
+    },
+    {
+      "name": "metadata_song",
+      "title": "查询歌曲匹配信息",
+      "group": "整理",
+      "page": "/library/songs/metadata",
+      "mode": "READ"
+    },
+    {
+      "name": "classification_tasks",
+      "title": "查询分类任务",
+      "group": "任务",
+      "page": "/library/classification",
+      "mode": "READ"
+    },
+    {
+      "name": "classification_task",
+      "title": "查询分类任务明细",
+      "group": "任务",
+      "page": "/library/classification",
+      "mode": "READ"
+    },
+    {
+      "name": "audio_status",
+      "title": "查询歌曲音轨状态",
+      "group": "整理",
+      "page": "/library/audio-processing",
+      "mode": "READ"
+    },
+    {
+      "name": "audio_batches",
+      "title": "查询音频批次",
+      "group": "任务",
+      "page": "/library/audio-processing",
+      "mode": "READ"
+    },
+    {
+      "name": "audio_batch",
+      "title": "查询音频批次明细",
+      "group": "任务",
+      "page": "/library/audio-processing",
+      "mode": "READ"
+    },
+    {
+      "name": "transcodes_list",
+      "title": "查询离线转码",
+      "group": "整理",
+      "page": "/library/audio-processing",
+      "mode": "READ"
+    },
+    {
+      "name": "tv_settings",
+      "title": "查询电视设置",
+      "group": "客厅",
+      "page": "/system/tv-settings",
+      "mode": "READ"
+    },
+    {
+      "name": "devices_list",
+      "title": "查询电视设备",
+      "group": "客厅",
+      "page": "/system/tv-settings",
+      "mode": "READ"
+    },
+    {
+      "name": "playback_summary",
+      "title": "查询播放与热门统计",
+      "group": "客厅",
+      "page": "/library/playback-history",
+      "mode": "READ"
+    },
+    {
+      "name": "feedback_list",
+      "title": "查询缺歌心愿",
+      "group": "客厅",
+      "page": "/library/missing-feedback",
+      "mode": "READ"
+    },
+    {
+      "name": "feedback_get",
+      "title": "查看缺歌心愿详情",
+      "group": "客厅",
+      "page": "/library/missing-feedback",
+      "mode": "READ"
+    },
+    {
+      "name": "platform_settings",
+      "title": "查询音乐平台设置",
+      "group": "系统",
+      "page": "/system/music-platforms",
+      "mode": "READ"
+    },
+    {
+      "name": "cache_status",
+      "title": "查询缓存使用情况",
+      "group": "系统",
+      "page": "/library/cache",
+      "mode": "READ"
+    },
+    {
+      "name": "compute_settings",
+      "title": "查询计算节点状态",
+      "group": "系统",
+      "page": "/system/compute",
+      "mode": "READ"
+    },
+    {
+      "name": "ai_services",
+      "title": "查询模型与搜索服务",
+      "group": "系统",
+      "page": "/system/ai/models",
+      "mode": "READ"
+    },
+    {
+      "name": "runtime_status",
+      "title": "查询后台运行概况",
+      "group": "系统",
+      "page": "/system",
+      "mode": "READ"
+    },
+    {
+      "name": "tasks_active",
+      "title": "查询活动后台任务",
+      "group": "任务",
+      "page": "/system/tasks",
+      "mode": "READ"
+    },
+    {
+      "name": "task_detail",
+      "title": "查询后台任务详情",
+      "group": "任务",
+      "page": "/system/tasks",
+      "mode": "READ"
+    },
+    {
+      "name": "web_search",
+      "title": "联网搜索",
+      "group": "系统",
+      "page": "/system/ai/features/assistant",
+      "mode": "READ"
+    },
+    {
+      "name": "task_items",
+      "title": "查询任务逐项结果",
+      "group": "任务",
+      "page": "/system/tasks",
+      "mode": "READ"
+    },
+    {
+      "name": "playlist_create",
+      "title": "创建歌单",
+      "group": "曲库",
+      "page": "/library/playlists",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "playlist_update",
+      "title": "修改歌单",
+      "group": "曲库",
+      "page": "/library/playlists",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "playlist_delete",
+      "title": "删除歌单",
+      "group": "曲库",
+      "page": "/library/playlists",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "favorites_change",
+      "title": "修改家庭收藏",
+      "group": "曲库",
+      "page": "/library/favorites",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "downloads_create",
+      "title": "下载并入库歌曲",
+      "group": "加歌",
+      "page": "/library/downloads",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "downloads_cancel",
+      "title": "取消下载批次",
+      "group": "任务",
+      "page": "/library/downloads",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "downloads_retry",
+      "title": "重试下载批次",
+      "group": "任务",
+      "page": "/library/downloads",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "artist_category",
+      "title": "修改歌手分类",
+      "group": "曲库",
+      "page": "/library/artists",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "feedback_update",
+      "title": "处理缺歌心愿",
+      "group": "客厅",
+      "page": "/library/missing-feedback",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "source_scan",
+      "title": "扫描媒体库",
+      "group": "加歌",
+      "page": "/library/media",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "audio_batch_create",
+      "title": "创建并启动音频批次",
+      "group": "整理",
+      "page": "/library/audio-processing",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "audio_batch_cancel",
+      "title": "取消音频批次",
+      "group": "任务",
+      "page": "/library/audio-processing",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "classification_control",
+      "title": "控制歌曲分类任务",
+      "group": "任务",
+      "page": "/library/classification",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "tv_settings_update",
+      "title": "更新电视文字与轮播设置",
+      "group": "客厅",
+      "page": "/system/tv-settings",
+      "mode": "CONFIRM"
+    },
+    {
+      "name": "song_editor_form",
+      "title": "歌曲编辑与移除",
+      "group": "曲库",
+      "page": "/library/songs",
+      "scope": "编辑单曲资料、人工音轨修正、移除索引或处理原始文件；核对完整对象后使用歌曲工作台表单",
+      "mode": "FORM"
+    },
+    {
+      "name": "playback_history_form",
+      "title": "播放记录与热门明细",
+      "group": "客厅",
+      "page": "/library/playback-history",
+      "scope": "筛选逐次播放记录、客户端与时间范围，查看热门歌曲和实际播放结果",
+      "mode": "FORM"
+    },
+    {
+      "name": "account_security_form",
+      "title": "账号与安全表单",
+      "group": "系统",
+      "page": "/system/parameters",
+      "scope": "修改密码、MFA、账号和安全设置；不要在对话中输入密码或验证码",
+      "mode": "FORM"
+    },
+    {
+      "name": "media_source_form",
+      "title": "媒体源配置表单",
+      "group": "加歌",
+      "page": "/library/media",
+      "scope": "创建、编辑、删除媒体库、WebDAV 凭据、路径和定时扫描",
+      "mode": "FORM"
+    },
+    {
+      "name": "filename_rules_form",
+      "title": "文件名规则编辑表单",
+      "group": "加歌",
+      "page": "/library/media/recognition",
+      "scope": "编辑识别规则、解析方案和重新识别范围",
+      "mode": "FORM"
+    },
+    {
+      "name": "download_source_form",
+      "title": "下载音源导入表单",
+      "group": "加歌",
+      "page": "/library/downloads",
+      "scope": "上传或导入音源脚本、配置环境、切换及删除音源；脚本和凭据不进入对话",
+      "mode": "FORM"
+    },
+    {
+      "name": "share_import_form",
+      "title": "分享与元数据导入表单",
+      "group": "加歌",
+      "page": "/library/media",
+      "scope": "上传分享包、预览并确认媒体导入；文件通过现有表单上传",
+      "mode": "FORM"
+    },
+    {
+      "name": "metadata_editor_form",
+      "title": "歌曲信息匹配与编辑",
+      "group": "整理",
+      "page": "/library/songs/metadata",
+      "scope": "匹配、比较和确认歌曲信息，编辑封面与歌词，处理批量部分失败",
+      "mode": "FORM"
+    },
+    {
+      "name": "classification_editor_form",
+      "title": "分类与标签编辑",
+      "group": "曲库",
+      "page": "/library/classification",
+      "scope": "编辑、停用标签和歌曲分类，审核建议、恢复历史或启动分类批次",
+      "mode": "FORM"
+    },
+    {
+      "name": "artist_images_form",
+      "title": "歌手图片管理",
+      "group": "整理",
+      "page": "/library/artists",
+      "scope": "上传、比较及审核歌手图片，管理自动抓图和批次",
+      "mode": "FORM"
+    },
+    {
+      "name": "audio_processing_form",
+      "title": "音频处理工作台",
+      "group": "整理",
+      "page": "/library/audio-processing",
+      "scope": "批量音轨识别、伴奏方案、模型安装、音轨修正和转码配置；文件通过现有表单上传",
+      "mode": "FORM"
+    },
+    {
+      "name": "tv_banner_form",
+      "title": "电视与设备管理表单",
+      "group": "客厅",
+      "page": "/system/tv-settings",
+      "scope": "上传轮播图、排序和电视设备管理；设备登录凭据通过原流程生成",
+      "mode": "FORM"
+    },
+    {
+      "name": "client_downloads_form",
+      "title": "客户端下载信息",
+      "group": "客厅",
+      "page": "/system/client-downloads",
+      "scope": "查看当前随服务提供的手机及电视客户端下载包和安装说明",
+      "mode": "FORM"
+    },
+    {
+      "name": "music_platform_form",
+      "title": "音乐平台配置表单",
+      "group": "系统",
+      "page": "/system/music-platforms",
+      "scope": "配置匹配平台、自动写入和抓图服务；密钥通过已有表单保存",
+      "mode": "FORM"
+    },
+    {
+      "name": "cache_settings_form",
+      "title": "缓存设置与清理表单",
+      "group": "系统",
+      "page": "/library/cache",
+      "scope": "核对缓存范围后清理，调整目录、容量及缓存策略",
+      "mode": "FORM"
+    },
+    {
+      "name": "compute_pairing_form",
+      "title": "计算节点配置表单",
+      "group": "系统",
+      "page": "/system/compute",
+      "scope": "发现、配对、路径映射、运行环境和模型配置；令牌通过原表单输入",
+      "mode": "FORM"
+    },
+    {
+      "name": "ai_configuration_form",
+      "title": "AI 服务配置表单",
+      "group": "系统",
+      "page": "/system/ai/features/assistant",
+      "scope": "模型与搜索服务绑定、密钥管理、原生工具连接测试和助手入口配置",
+      "mode": "FORM"
+    },
+    {
+      "name": "task_controls_form",
+      "title": "后台任务控制入口",
+      "group": "任务",
+      "page": "/system/tasks",
+      "scope": "查看所有任务与逐项结果，在所属业务页面取消、重试或处理审核项",
+      "mode": "FORM"
+    }
+  ],
+  "features": [
+    {
+      "feature": "概览与运行状态",
+      "page": "/overview",
+      "scope": "曲库、待审核、任务、服务运行概况",
+      "tools": [
+        "runtime_status"
+      ]
+    },
+    {
+      "feature": "歌曲工作台",
+      "page": "/library/songs",
+      "scope": "查询与详情；资料编辑、移除索引、原始文件操作经现有表单",
+      "tools": [
+        "songs_search",
+        "song_get",
+        "song_editor_form"
+      ]
+    },
+    {
+      "feature": "歌单",
+      "page": "/library/playlists",
+      "scope": "列表、详情、创建、完整替换及删除",
+      "tools": [
+        "playlists_list",
+        "playlist_get",
+        "playlist_create",
+        "playlist_update",
+        "playlist_delete"
+      ]
+    },
+    {
+      "feature": "家庭收藏",
+      "page": "/library/favorites",
+      "scope": "查询及批量添加、移除",
+      "tools": [
+        "favorites_list",
+        "favorites_change"
+      ]
+    },
+    {
+      "feature": "歌手",
+      "page": "/library/artists",
+      "scope": "档案、分类；图片上传、自动抓图及审核经表单",
+      "tools": [
+        "artists_list",
+        "artist_category",
+        "artist_images_form"
+      ]
+    },
+    {
+      "feature": "分类与标签",
+      "page": "/library/classification",
+      "scope": "词表、任务、明细及暂停/继续/取消；词表编辑、人工分类、启动/审核/历史恢复经表单",
+      "tools": [
+        "tags_list",
+        "classification_tasks",
+        "classification_task",
+        "classification_control",
+        "classification_editor_form"
+      ]
+    },
+    {
+      "feature": "媒体源与扫描",
+      "page": "/library/media",
+      "scope": "媒体源查询、扫描/入库；源配置与删除、账号、定时规则、文件分享导入导出经表单",
+      "tools": [
+        "sources_list",
+        "source_get",
+        "source_scan",
+        "media_source_form",
+        "share_import_form"
+      ]
+    },
+    {
+      "feature": "文件名识别",
+      "page": "/library/media/recognition",
+      "scope": "只读解析；方案及重新识别范围经表单",
+      "tools": [
+        "filename_parse",
+        "filename_rules_form"
+      ]
+    },
+    {
+      "feature": "文件名规则",
+      "page": "/library/media/recognition/rules",
+      "scope": "编辑、测试及调整自定义规则",
+      "tools": [
+        "filename_rules_form"
+      ]
+    },
+    {
+      "feature": "歌曲下载",
+      "page": "/library/downloads",
+      "scope": "目录搜索、分享预览、批量下载入库、批次及逐项结果、取消和重试；音源脚本与凭据经表单",
+      "tools": [
+        "downloads_search",
+        "downloads_share_preview",
+        "downloads_status",
+        "downloads_batches",
+        "downloads_items",
+        "downloads_create",
+        "downloads_cancel",
+        "downloads_retry",
+        "download_source_form"
+      ]
+    },
+    {
+      "feature": "歌曲信息整理",
+      "page": "/library/songs/metadata",
+      "scope": "匹配状态、候选比较、封面歌词、批次审核及写入经编辑器",
+      "tools": [
+        "metadata_song",
+        "metadata_editor_form"
+      ]
+    },
+    {
+      "feature": "原唱、伴奏与转码",
+      "page": "/library/audio-processing",
+      "scope": "歌曲状态、识别与伴奏批次创建/启动、明细、取消；高级方案、手工映射、模型安装及转码配置经表单",
+      "tools": [
+        "audio_status",
+        "audio_batches",
+        "audio_batch",
+        "audio_batch_create",
+        "audio_batch_cancel",
+        "transcodes_list",
+        "audio_processing_form"
+      ]
+    },
+    {
+      "feature": "播放记录与热门",
+      "page": "/library/playback-history",
+      "scope": "近30天统计；逐次记录与筛选经原页面",
+      "tools": [
+        "playback_summary",
+        "playback_history_form"
+      ]
+    },
+    {
+      "feature": "缺歌心愿",
+      "page": "/library/missing-feedback",
+      "scope": "列表、详情、状态/备注及关联入库歌曲",
+      "tools": [
+        "feedback_list",
+        "feedback_get",
+        "feedback_update"
+      ]
+    },
+    {
+      "feature": "电视与设备",
+      "page": "/system/tv-settings",
+      "scope": "读取配置与设备、修改文字和轮播；图片上传排序及设备撤销经表单",
+      "tools": [
+        "tv_settings",
+        "devices_list",
+        "tv_settings_update",
+        "tv_banner_form"
+      ]
+    },
+    {
+      "feature": "客户端分发",
+      "page": "/system/client-downloads",
+      "scope": "当前手机/电视安装包及安装说明",
+      "tools": [
+        "client_downloads_form"
+      ]
+    },
+    {
+      "feature": "音乐平台",
+      "page": "/system/music-platforms",
+      "scope": "读取配置；平台、匹配规则、自动应用及凭据编辑经表单",
+      "tools": [
+        "platform_settings",
+        "music_platform_form"
+      ]
+    },
+    {
+      "feature": "缓存",
+      "page": "/library/cache",
+      "scope": "容量与配置；清理、目录及策略经表单",
+      "tools": [
+        "cache_status",
+        "cache_settings_form"
+      ]
+    },
+    {
+      "feature": "计算节点",
+      "page": "/system/compute",
+      "scope": "读取状态与能力；发现、配对、路径映射、模型安装、试跑经表单",
+      "tools": [
+        "compute_settings",
+        "compute_pairing_form"
+      ]
+    },
+    {
+      "feature": "模型、搜索与功能绑定",
+      "page": "/system/ai/models",
+      "scope": "模型/搜索/功能查询，助手可选联网搜索；协议、密钥和绑定编辑经表单",
+      "tools": [
+        "ai_services",
+        "web_search",
+        "ai_configuration_form"
+      ]
+    },
+    {
+      "feature": "搜索服务设置",
+      "page": "/system/ai/search",
+      "scope": "搜索服务配置及无业务副作用的测试",
+      "tools": [
+        "ai_configuration_form"
+      ]
+    },
+    {
+      "feature": "AI 功能设置",
+      "page": "/system/ai/features",
+      "scope": "分类与助手的模型/搜索绑定和入口配置",
+      "tools": [
+        "ai_configuration_form"
+      ]
+    },
+    {
+      "feature": "助手设置",
+      "page": "/system/ai/features/assistant",
+      "scope": "模型、可选搜索绑定，原生工具测试和目录",
+      "tools": [
+        "ai_configuration_form"
+      ]
+    },
+    {
+      "feature": "账号与安全",
+      "page": "/system/parameters",
+      "scope": "密码、MFA、恢复码、账号等均使用已有表单",
+      "tools": [
+        "account_security_form"
+      ]
+    },
+    {
+      "feature": "服务状态",
+      "page": "/system",
+      "scope": "后台与节点运行情况",
+      "tools": [
+        "runtime_status"
+      ]
+    },
+    {
+      "feature": "后台任务",
+      "page": "/system/tasks",
+      "scope": "真实活动任务、详情和逐项结果；所属业务服务控制，复杂重试/审核经原页面",
+      "tools": [
+        "tasks_active",
+        "task_detail",
+        "task_items",
+        "task_controls_form"
+      ]
+    },
+    {
+      "feature": "后台任务详情",
+      "page": "/system/tasks/:id",
+      "scope": "任务与子任务、逐项失败原因及业务入口",
+      "tools": [
+        "task_detail",
+        "task_items",
+        "task_controls_form"
+      ]
+    },
+    {
+      "feature": "助手工作台",
+      "page": "/system/assistant",
+      "scope": "服务器会话、流式输出、确认、历史及任务进度",
+      "tools": [
+        "ai_configuration_form"
+      ]
+    }
+  ]
+}

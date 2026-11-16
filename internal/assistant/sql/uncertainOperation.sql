@@ -1,0 +1,1 @@
+SELECT o.* FROM assistant_operation o JOIN assistant_run r ON r.id=o.run_id WHERE r.conversation_id=? AND o.tool_name=? AND o.arguments=? AND o.state IN ('UNCERTAIN','EXECUTING') ORDER BY o.created_at DESC LIMIT 1;

@@ -15,8 +15,9 @@ import (
 // Snapshots only identify a removed song; the live library remains authoritative
 // for current metadata and playback. No media is written or removed here.
 type FavoriteChange struct {
-	SongIDs  []string `json:"songIds"`
-	Selected *bool    `json:"selected"`
+	SongIDs          []string `json:"songIds"`
+	Selected         *bool    `json:"selected"`
+	ExpectedRevision *int64   `json:"revision,omitempty"`
 }
 
 func (s *Service) favoriteIDs(ctx context.Context, tx store.DBTX) (map[string]any, error) {
@@ -54,6 +55,9 @@ func (s *Service) changeFavorites(ctx context.Context, in FavoriteChange) (any, 
 		current, err := s.favoriteIDs(ctx, tx)
 		if err != nil {
 			return err
+		}
+		if in.ExpectedRevision != nil && num(current["revision"]) != *in.ExpectedRevision {
+			return fail(409, "收藏已变化，请重新确认")
 		}
 		existing := map[string]bool{}
 		for _, id := range current["songIds"].([]string) {

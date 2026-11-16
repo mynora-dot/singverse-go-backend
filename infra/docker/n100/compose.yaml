@@ -1,0 +1,88 @@
+# Standalone, prebuilt-image deployment for a Linux Intel N100 NAS.
+# Keep the established project, service and volume identities.
+name: singverse-go-app
+
+services:
+  singverse-go-backend:
+    image: '${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/singverse:${SINGVERSE_VERSION:?Set the published app version in .env}'
+    platform: linux/amd64
+    environment:
+      SINGVERSE_DB_DRIVER: sqlite
+      SINGVERSE_BIND_ADDRESS: 0.0.0.0
+      SERVER_PORT: '8080'
+      SQLITE_PATH: /data/singverse.db
+      SINGVERSE_AUTH_KEY_FILE: /secrets/master.key
+      COMPUTE_NODE_URL: http://singverse-compute:8090
+      COMPUTE_AUTH_TOKEN_FILE: /run/singverse-compute/token
+      SINGVERSE_COMPUTE_AUTO_CALLBACK_ORIGIN: http://singverse-go-backend:8080
+      SINGVERSE_PUBLIC_ORIGIN: '${SINGVERSE_PUBLIC_ORIGIN:-}'
+      SINGVERSE_TRUSTED_PROXIES: '${SINGVERSE_TRUSTED_PROXIES:-}'
+      WEBDAV_METADATA_PATH: /data/metadata/webdav
+      METADATA_CACHE_PATH: /data/metadata/covers
+      TRANSCODE_VERSION_PATH: /data/transcoding
+      SINGVERSE_SONG_CACHE_PATH: /data/transcoding/cache
+      SINGVERSE_SONG_CACHE_BYTES: '${SINGVERSE_SONG_CACHE_BYTES:-21474836480}'
+      SINGVERSE_SONG_CACHE_MINIMUM_FREE_BYTES: '${SINGVERSE_SONG_CACHE_MINIMUM_FREE_BYTES:-2147483648}'
+      AUDIO_DERIVED_PATH: /data/audio-roles
+    ports:
+      - '${SINGVERSE_HTTP_BIND:?Set the NAS LAN IPv4 address in .env}:${SINGVERSE_HTTP_PORT:-18080}:8080'
+    volumes:
+      - singverse-data:/data
+      - singverse-secrets:/secrets
+      - singverse-compute-auth:/run/singverse-compute:ro
+      - singverse-media:/media:ro
+      - singverse-downloads:/downloads
+    mem_limit: '${SINGVERSE_CONTAINER_MEMORY_LIMIT:-1g}'
+    cpus: '${SINGVERSE_CPU_LIMIT:-1.0}'
+    restart: unless-stopped
+    stop_grace_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  singverse-compute:
+    image: '${IMAGE_PREFIX:?Set IMAGE_PREFIX in .env}/singverse-compute:${COMPUTE_VERSION:?Set the published compute version in .env}-openvino'
+    platform: linux/amd64
+    init: true
+    environment:
+      COMPUTE_AUTH_TOKEN_FILE: /run/singverse-compute/token
+      COMPUTE_LAN_PAIRING_ENABLED: 'false'
+      COMPUTE_HARDWARE_BACKEND: '${COMPUTE_HARDWARE_BACKEND:-qsv}'
+      COMPUTE_HARDWARE_DEVICE: '${COMPUTE_HARDWARE_DEVICE:-/dev/dri/renderD128}'
+      COMPUTE_PROCESS_MEMORY_BYTES: '${COMPUTE_PROCESS_MEMORY_BYTES:-1073741824}'
+      COMPUTE_TRANSCODE_CONCURRENCY: '${COMPUTE_TRANSCODE_CONCURRENCY:-1}'
+      COMPUTE_CACHE_BYTES: '${COMPUTE_CACHE_BYTES:-5368709120}'
+      COMPUTE_MINIMUM_FREE_BYTES: '${COMPUTE_MINIMUM_FREE_BYTES:-2147483648}'
+      COMPUTE_AUDIO_MODEL_REPO: /var/lib/singverse-models/htdemucs
+      COMPUTE_AUDIO_MEMORY_BYTES: '${COMPUTE_AUDIO_MEMORY_BYTES:-2147483648}'
+      COMPUTE_AUDIO_THREADS: '${COMPUTE_AUDIO_THREADS:-2}'
+      COMPUTE_AUDIO_WORKER_IDLE_SECONDS: '${COMPUTE_AUDIO_WORKER_IDLE_SECONDS:-30}'
+    devices:
+      - '${COMPUTE_HARDWARE_DEVICE:-/dev/dri/renderD128}:${COMPUTE_HARDWARE_DEVICE:-/dev/dri/renderD128}'
+    group_add:
+      - '${COMPUTE_RENDER_GID:?Set the numeric render device group ID in .env}'
+    volumes:
+      - singverse-compute-auth:/run/singverse-compute
+      - singverse-transcode-cache:/var/cache/singverse-transcode
+      - singverse-audio-models:/var/lib/singverse-models
+    mem_limit: '${COMPUTE_CONTAINER_MEMORY_LIMIT:-4g}'
+    cpus: '${COMPUTE_CPU_LIMIT:-2.0}'
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  singverse-data:
+  singverse-secrets:
+  singverse-media:
+  singverse-downloads:
+  singverse-compute-auth:
+  # Includes saved hardware/model settings and qualification records.
+  singverse-transcode-cache:
+  singverse-audio-models:

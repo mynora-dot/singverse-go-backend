@@ -74,19 +74,28 @@ func (s *Service) Negotiate(ctx context.Context, songID, owner string, body map[
 	}
 	request := copyMap(body)
 	requested := str(body, "audioRole")
+	// Browser HLS can switch alternate audio without replacing the video. Keep
+	// both confirmed source tracks in one lease instead of remuxing each role.
+	client := obj(body["client"])
+	switchableAudio := boolv(body["switchableAudio"]) && owner == "admin" && str(client, "family") == "browser" && boolv(client["hls"]) &&
+		body["audio_id"] == nil && oneOf(requested, "original", "backing") && str(audio, "state") == "CONFIRMED" &&
+		audioPattern.MatchString(str(audio, "originalId")) && audioPattern.MatchString(str(audio, "backingId")) &&
+		str(audio, "originalId") != str(audio, "backingId") && audio["backingResource"] == nil
 	if oneOf(requested, "original", "backing") {
 		key := "originalId"
 		if requested == "backing" {
 			key = "backingId"
 		}
-		if selected := str(audio, key); selected != "" {
+		if switchableAudio {
+			delete(request, "audio_id")
+		} else if selected := str(audio, key); selected != "" {
 			request["audio_id"] = selected
 		} else if requested == "original" && str(obj(audio["originalSelection"]), "kind") == "UNIQUE_AUDIO" {
 			delete(request, "audio_id")
 		}
 		delete(request, "audioRole")
 	}
-	v, err := s.negotiateMedia(ctx, songID, owner, request, directURL, prefix)
+	v, err := s.negotiateMedia(ctx, songID, owner, request, directURL, prefix, switchableAudio)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +110,7 @@ func (s *Service) Negotiate(ctx context.Context, songID, owner string, body map[
 	return v, nil
 }
 
-func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body map[string]any, directURL, prefix string) (map[string]any, error) {
+func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body map[string]any, directURL, prefix string, switchableAudio bool) (map[string]any, error) {
 	song, err := s.song(ctx, s.db, songID)
 	if err != nil {
 		return nil, err
@@ -151,7 +160,7 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 		return s.TranscodeView(ctx, session, owner, prefix)
 	}
 	var version map[string]any
-	if !boolv(body["force"]) && body["audio_id"] == nil && body["subtitle_id"] == nil && !boolv(body["burn_subtitle"]) {
+	if !switchableAudio && !boolv(body["force"]) && body["audio_id"] == nil && body["subtitle_id"] == nil && !boolv(body["burn_subtitle"]) {
 		versions, err := s.maps(ctx, s.db, "transcode-versions", map[string]any{"song": songID, "fingerprint": fp})
 		if err != nil {
 			return nil, err
@@ -170,7 +179,7 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 		if version != nil {
 			return version, nil
 		}
-		if boolv(body["force"]) {
+		if boolv(body["force"]) || switchableAudio {
 			return nil, err
 		}
 		return direct(directURL, "COMPUTE_UNAVAILABLE"), nil
@@ -179,13 +188,13 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 	if err = s.insertTranscode(ctx, id, songID, owner, "REALTIME", selected, c); err != nil {
 		return nil, err
 	}
-	v, err := s.startRealtime(ctx, id, songID, owner, fp, key, directURL, prefix, body, selected, client, c, version)
+	v, err := s.startRealtime(ctx, id, songID, owner, fp, key, directURL, prefix, body, selected, client, c, version, switchableAudio)
 	if err == nil {
 		return v, nil
 	}
 	_ = s.updateTranscode(ctx, id, "FAILED", map[string]any{}, safeFailure(err))
 	var f *failure
-	if errors.As(err, &f) && oneOfInt(f.status, 502, 503) && !boolv(body["force"]) && body["audio_id"] == nil && body["subtitle_id"] == nil {
+	if errors.As(err, &f) && oneOfInt(f.status, 502, 503) && !switchableAudio && !boolv(body["force"]) && body["audio_id"] == nil && body["subtitle_id"] == nil {
 		if version != nil {
 			return version, nil
 		}
@@ -194,7 +203,7 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 	return nil, err
 }
 
-func (s *Service) startRealtime(ctx context.Context, id, songID, owner, fp, key, directURL, prefix string, body, selected, client map[string]any, c *compute.Connection, version map[string]any) (map[string]any, error) {
+func (s *Service) startRealtime(ctx context.Context, id, songID, owner, fp, key, directURL, prefix string, body, selected, client map[string]any, c *compute.Connection, version map[string]any, switchableAudio bool) (map[string]any, error) {
 	effective := copyMap(client)
 	effective["max_width"], effective["max_height"], effective["max_bitrate"], effective["max_fps"] = selected["width"], selected["height"], selected["bitrate"], selected["fps"]
 	plan, err := s.call(ctx, c, "/internal/v1/transcoding/negotiate", "POST", map[string]any{"reference": id, "client": effective, "fingerprint": fp, "burn_subtitle": boolv(body["burn_subtitle"])})
@@ -202,7 +211,7 @@ func (s *Service) startRealtime(ctx context.Context, id, songID, owner, fp, key,
 		return nil, err
 	}
 	_ = s.observeAudio(ctx, songID, obj(plan["media"]), fp)
-	if str(plan, "mode") == "DIRECT" && !boolv(body["force"]) && !boolv(body["burn_subtitle"]) && body["audio_id"] == nil && body["subtitle_id"] == nil && body["codec"] == nil {
+	if str(plan, "mode") == "DIRECT" && !switchableAudio && !boolv(body["force"]) && !boolv(body["burn_subtitle"]) && body["audio_id"] == nil && body["subtitle_id"] == nil && body["codec"] == nil {
 		_ = s.updateTranscode(ctx, id, "DIRECT", plan, "")
 		v := direct(directURL, "")
 		v["media"] = plan["media"]

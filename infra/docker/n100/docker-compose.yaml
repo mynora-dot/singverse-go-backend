@@ -1,0 +1,122 @@
+# N100 NAS 单文件部署，无需 .env；已按 mynora 镜像和当前 NAS 路径填写。
+# 在原部署目录使用，保留现有数据、主密钥和节点 token。
+# 核显 GID 107 仍需用 NAS 上 stat -c '%g' /dev/dri/renderD128 的输出核对。
+name: singverse-go-app
+
+services:
+  # 只初始化本应用的六个可写目录。正常完成后显示 Exited (0)。
+  singverse-storage-init:
+    image: mynora/singverse:latest
+    platform: linux/amd64
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        for dir in /init/data /init/secrets /init/downloads /init/compute-auth /init/compute-cache /init/models; do
+          mkdir -p "$$dir"
+          chown -Rh 10001:10001 "$$dir"
+          chmod 750 "$$dir"
+        done
+        for key in /init/secrets/master.key /init/compute-auth/token; do
+          if [ -f "$$key" ]; then
+            chmod 600 "$$key"
+          fi
+        done
+    volumes:
+      - ./singverse-data:/init/data
+      - ./singverse-secrets:/init/secrets
+      - ./singverse-downloads:/init/downloads
+      - ./singverse-compute-auth:/init/compute-auth
+      - ./singverse-transcode-cache:/init/compute-cache
+      - ./singverse-audio-models:/init/models
+    network_mode: none
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  singverse-go-backend:
+    image: mynora/singverse:latest
+    platform: linux/amd64
+    user: "10001:10001"
+    depends_on:
+      singverse-storage-init:
+        condition: service_completed_successfully
+    environment:
+      SINGVERSE_DB_DRIVER: sqlite
+      SINGVERSE_BIND_ADDRESS: 0.0.0.0
+      SERVER_PORT: "8080"
+      SQLITE_PATH: /data/singverse.db
+      SINGVERSE_AUTH_KEY_FILE: /secrets/master.key
+      COMPUTE_NODE_URL: http://singverse-compute:8090
+      COMPUTE_AUTH_TOKEN_FILE: /run/singverse-compute/token
+      SINGVERSE_COMPUTE_AUTO_CALLBACK_ORIGIN: http://singverse-go-backend:8080
+      WEBDAV_METADATA_PATH: /data/metadata/webdav
+      METADATA_CACHE_PATH: /data/metadata/covers
+      TRANSCODE_VERSION_PATH: /data/transcoding
+      SINGVERSE_SONG_CACHE_PATH: /data/transcoding/cache
+      SINGVERSE_SONG_CACHE_BYTES: "21474836480"
+      SINGVERSE_SONG_CACHE_MINIMUM_FREE_BYTES: "2147483648"
+      AUDIO_DERIVED_PATH: /data/audio-roles
+    ports:
+      - "10.103.1.14:18080:8080"
+    volumes:
+      - ./singverse-data:/data
+      - ./singverse-secrets:/secrets
+      # 与计算端使用同一个宿主目录，业务端只读。
+      - ./singverse-compute-auth:/run/singverse-compute:ro
+      - type: bind
+        source: /volume2/娱乐机械1/ktv
+        target: /media
+        read_only: true
+        bind:
+          create_host_path: false
+      - ./singverse-downloads:/downloads
+    mem_limit: 1g
+    cpus: 1.0
+    restart: unless-stopped
+    stop_grace_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  singverse-compute:
+    image: mynora/singverse-compute:latest-openvino
+    platform: linux/amd64
+    user: "10001:10001"
+    init: true
+    depends_on:
+      singverse-storage-init:
+        condition: service_completed_successfully
+    environment:
+      COMPUTE_AUTH_TOKEN_FILE: /run/singverse-compute/token
+      COMPUTE_LAN_PAIRING_ENABLED: "false"
+      COMPUTE_HARDWARE_BACKEND: qsv
+      COMPUTE_HARDWARE_DEVICE: /dev/dri/renderD128
+      COMPUTE_PROCESS_MEMORY_BYTES: "1073741824"
+      COMPUTE_TRANSCODE_CONCURRENCY: "1"
+      COMPUTE_CACHE_BYTES: "5368709120"
+      COMPUTE_MINIMUM_FREE_BYTES: "2147483648"
+      COMPUTE_AUDIO_MODEL_REPO: /var/lib/singverse-models/htdemucs
+      COMPUTE_AUDIO_MEMORY_BYTES: "2147483648"
+      COMPUTE_AUDIO_THREADS: "2"
+      COMPUTE_AUDIO_WORKER_IDLE_SECONDS: "30"
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      # 用 NAS 上 stat -c '%g' /dev/dri/renderD128 的输出核对。
+      - "107"
+    volumes:
+      - ./singverse-compute-auth:/run/singverse-compute
+      - ./singverse-transcode-cache:/var/cache/singverse-transcode
+      - ./singverse-audio-models:/var/lib/singverse-models
+    mem_limit: 4g
+    cpus: 2.0
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

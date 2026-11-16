@@ -1,0 +1,1 @@
+DELETE FROM assistant_conversation WHERE id=? AND active_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM assistant_run r JOIN assistant_operation o ON o.run_id=r.id WHERE r.conversation_id=assistant_conversation.id AND o.state='EXECUTING');

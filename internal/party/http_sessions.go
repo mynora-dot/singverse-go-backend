@@ -2,7 +2,6 @@ package party
 
 import (
 	"context"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
@@ -74,30 +73,6 @@ func (s *Service) listParticipantsHTTP(c *gin.Context) {
 			}
 		}
 		return participantsView, nil
-	})
-}
-
-func (s *Service) sessionSnapshotHTTP(c *gin.Context) {
-	s.runAsActor(c, func(ctx context.Context, tx store.DBTX, actor document) (any, error) {
-		if str(actor, "kind") == "device" {
-			if err := s.lock(ctx, tx, c.Param("id")); err != nil {
-				return nil, err
-			}
-		}
-		session, err := s.get(ctx, tx, c.Param("id"))
-		if err != nil {
-			return nil, err
-		}
-		if err = check(actor, session); err != nil {
-			return nil, err
-		}
-		if str(actor, "kind") == "device" {
-			session["tvSeenAt"] = s.now().UTC().Format(time.RFC3339Nano)
-			if err = s.save(ctx, tx, session); err != nil {
-				return nil, err
-			}
-		}
-		return s.snapshot(session, actor), nil
 	})
 }
 

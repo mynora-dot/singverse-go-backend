@@ -16,11 +16,12 @@ import (
 )
 
 type PlaylistSave struct {
-	RequestID   string   `json:"requestId"`
-	Name        string   `json:"name"`
-	Description *string  `json:"description"`
-	SongIDs     []string `json:"songIds"`
-	Revision    int64    `json:"revision"`
+	RequestID         string   `json:"requestId"`
+	Name              string   `json:"name"`
+	Description       *string  `json:"description"`
+	SongIDs           []string `json:"songIds"`
+	Revision          int64    `json:"revision"`
+	ExpectedSongsHash string   `json:"-"`
 }
 type PlaylistGenerate struct {
 	Prompt         string `json:"prompt"`
@@ -177,12 +178,23 @@ func (s *Service) playlistSave(ctx context.Context, target string, v PlaylistSav
 			return nil, e
 		}
 		exists := map[string]bool{}
+		byID := map[string]map[string]any{}
 		for _, song := range songs {
 			exists[str(song["id"])] = true
+			byID[str(song["id"])] = song
 		}
 		for _, id := range v.SongIDs {
 			if !exists[id] {
 				return nil, fail(409, "部分歌曲已移除，请重新选择后保存")
+			}
+		}
+		if v.ExpectedSongsHash != "" {
+			snapshots := []map[string]any{}
+			for _, id := range v.SongIDs {
+				snapshots = append(snapshots, adminProjection(byID[id]))
+			}
+			if sha(encode(snapshots)) != v.ExpectedSongsHash {
+				return nil, fail(409, "歌曲信息已变化，请重新确认")
 			}
 		}
 		hash := sha(encode([]any{strings.TrimSpace(v.Name), strings.TrimSpace(*v.Description), v.SongIDs}))

@@ -82,9 +82,13 @@ func matchesAudio(row, filter map[string]any) bool {
 // The index uses bounded recent histories loaded in bulk, so filtering the full
 // collection never performs a query for every song.
 func (s *Service) audioCatalog(ctx context.Context) ([]map[string]any, error) {
+	return s.audioCatalogSnapshot(ctx, true)
+}
+
+func (s *Service) audioCatalogSnapshot(ctx context.Context, useCache bool) ([]map[string]any, error) {
 	s.catalogMu.Lock()
 	defer s.catalogMu.Unlock()
-	if s.catalog != nil && now()-s.catalogBuilt.Load() < 2000 {
+	if useCache && s.catalog != nil && now()-s.catalogBuilt.Load() < 2000 {
 		return s.catalog, nil
 	}
 	songs, err := s.library.LibrarySongs(ctx, s.db)
@@ -281,7 +285,17 @@ func (s *Service) batches(ctx context.Context, page, size int, kind string) (map
 	}
 	return map[string]any{"totalElements": total, "items": items}, nil
 }
-func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[string]any, error) {
+
+type batchSelection struct {
+	kind, backend string
+	spec          audioRecipe
+	selected      []map[string]any
+}
+
+// resolveBatchTargets only reads the library and validates the request. Keep
+// task creation, preparation locks and workers outside this function so an
+// assistant can present a confirmation without starting a business operation.
+func (s *Service) resolveBatchTargets(ctx context.Context, input map[string]any, fresh bool) (*batchSelection, error) {
 	kind := batchKind(input)
 	if !oneOf(kind, "SEPARATE", "FAST", "ANALYZE") {
 		return nil, fail(400, "批次类型无效")
@@ -303,7 +317,7 @@ func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[s
 	if kind == "FAST" {
 		backend = ""
 	}
-	catalog, err := s.audioCatalog(ctx)
+	catalog, err := s.audioCatalogSnapshot(ctx, !fresh)
 	if err != nil {
 		return nil, err
 	}
@@ -342,11 +356,22 @@ func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[s
 	if len(selected) == 0 {
 		return nil, fail(400, "没有符合条件的歌曲")
 	}
+	return &batchSelection{kind: kind, backend: backend, spec: spec, selected: selected}, nil
+}
+
+func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[string]any, error) {
+	selection, err := s.resolveBatchTargets(ctx, input, false)
+	if err != nil {
+		return nil, err
+	}
+	return s.createAudioBatch(ctx, selection, uuid(), true)
+}
+func (s *Service) createAudioBatch(ctx context.Context, selection *batchSelection, id string, async bool) (map[string]any, error) {
+	kind, backend, spec, selected := selection.kind, selection.backend, selection.spec, selection.selected
 	if !s.preparing.CompareAndSwap(false, true) {
 		return nil, fail(429, "正在准备其他批次，请稍后重试")
 	}
-	id := uuid()
-	err = s.transaction(ctx, "AUDIO_BATCH", id, func(tx *sqlx.Tx) error {
+	err := s.transaction(ctx, "AUDIO_BATCH", id, func(tx *sqlx.Tx) error {
 		if _, e := s.exec(ctx, tx, "batch-insert-batch", map[string]any{"id": id, "kind": kind, "backend": backend, "now": now(), "total": len(selected)}); e != nil {
 			return e
 		}
@@ -356,6 +381,20 @@ func (s *Service) previewBatch(ctx context.Context, input map[string]any) (map[s
 	if err != nil {
 		s.preparing.Store(false)
 		return nil, err
+	}
+	if !async {
+		defer s.preparing.Store(false)
+		s.prepareBatch(ctx, id, selected, spec, kind)
+		result, startErr := s.startBatch(ctx, id)
+		if startErr != nil {
+			result, e := s.batchDetail(ctx, id, 0, 50)
+			if e != nil {
+				return nil, e
+			}
+			result["message"] = "批次已创建，尚未启动，请在音频处理页面检查计算节点并启动"
+			return result, nil
+		}
+		return result, nil
 	}
 	s.wg.Add(1)
 	go func() {
