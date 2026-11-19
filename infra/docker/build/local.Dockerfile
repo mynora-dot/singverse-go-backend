@@ -46,6 +46,7 @@ RUN rm -rf /etc/nginx /usr/share/nginx /docker-entrypoint.d /usr/sbin/nginx \
     && chown 10001:10001 /data /secrets /downloads
 COPY --from=backend-build /out/singverse /usr/local/bin/singverse
 COPY --from=backend-build /out/dbmate /usr/local/bin/dbmate
+COPY internal/platform/qishui/LICENSE.txt ./licenses/qishui-music-api.txt
 COPY database/migrations/ ./database/migrations/
 # Optional local packages are validated before the build and bundled in the image.
 COPY --from=client-releases / /opt/singverse/releases/

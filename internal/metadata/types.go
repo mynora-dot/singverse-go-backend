@@ -119,7 +119,7 @@ type Provider interface {
 type projectFunc func(context.Context, store.DBTX, string, string) error
 
 var allFields = []string{"title", "artists", "album", "releaseDate", "aliases", "cover", "durationMs"}
-var providers = []string{"NETEASE", "QQ", "KUGOU", "KUWO", "QISHUI"}
+var providers = []string{"NETEASE", "QQ", "KUGOU", "KUWO", "QISHUI", "MIGU"}
 
 type problem struct {
 	status int
@@ -272,6 +272,10 @@ func stringsOf(v any) []string {
 	return out
 }
 func safeDetail(err error) string {
+	var p *problem
+	if errors.As(err, &p) && p.status == http.StatusServiceUnavailable {
+		return p.detail
+	}
 	if code(err) < 500 {
 		return err.Error()
 	}

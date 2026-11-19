@@ -317,12 +317,12 @@ func parseCapabilities(data json.RawMessage) (map[string][]string, error) {
 		return nil, ErrInvalid
 	}
 	result := map[string][]string{}
-	for _, platform := range []string{"wy", "tx", "kg", "kw", "mg"} {
+	for _, platform := range []string{"wy", "tx", "kg", "kw", "mg", "qs"} {
 		source := info.Sources[platform]
 		if !contains(source.Actions, "musicUrl") {
 			continue
 		}
-		for _, quality := range []string{"flac24bit", "flac", "320k", "128k"} {
+		for _, quality := range []string{"flac24bit", "flac", "320k", "256k", "128k", "64k", "32k"} {
 			if contains(source.Qualities, quality) {
 				result[platform] = append(result[platform], quality)
 			}

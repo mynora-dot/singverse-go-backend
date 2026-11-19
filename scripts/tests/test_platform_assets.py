@@ -162,7 +162,20 @@ class PlatformAssetsTests(unittest.TestCase):
                                     abis=["universal"], size=len(apk), sha256=hashlib.sha256(apk).hexdigest(),
                                     certificateSha256="a" * 64, notes="isolated test")
                     manifests[name] = metadata
-                    files = {"singverse-" + name + ".apk": apk, "release.json": json.dumps(metadata).encode()}
+                    if name == "mobile":
+                        per_abi = []
+                        files = {}
+                        for abi in ("armeabi-v7a", "arm64-v8a", "x86_64"):
+                            data = apk + abi.encode()
+                            item = dict(metadata, abis=[abi], size=len(data), sha256=hashlib.sha256(data).hexdigest())
+                            per_abi.append(item)
+                            files[f"singverse-mobile-{abi}.apk"] = data
+                        from release_manifest import release_index
+                        metadata = release_index(per_abi)
+                        manifests[name] = metadata
+                        files["release.json"] = json.dumps(metadata).encode()
+                    else:
+                        files = {"singverse-" + name + ".apk": apk, "release.json": json.dumps(metadata).encode()}
                 files["SHA256SUMS"] = "".join(hashlib.sha256(value).hexdigest() + "  " + key + "\n" for key, value in files.items()).encode()
                 release = self.release(id=index, assets=[])
                 for offset, (filename, value) in enumerate(files.items(), 1):

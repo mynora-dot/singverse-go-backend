@@ -2,12 +2,15 @@ package metadata
 
 import (
 	"context"
+	"errors"
 	"html"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/qishui"
 )
 
 var publicMusicID = regexp.MustCompile(`^[0-9]{1,20}$`)
@@ -92,13 +95,13 @@ func parseKuwo(rows []any, limit int) []Track {
 }
 
 func (p *musicProvider) searchQishui(ctx context.Context, keyword string, limit int) ([]Track, error) {
-	q := url.Values{"aid": {"386088"}, "app_name": {"luna"}, "region": {"cn"}, "device_platform": {"android"}, "version_name": {"3.0.0"}, "version_code": {"30000000"}, "q": {keyword}, "cursor": {"0"}, "count": {strconv.Itoa(limit)}}
-	root, err := p.request(ctx, "GET", "https://api.qishui.com/luna/search/track?"+q.Encode(), nil, map[string]string{"User-Agent": "Luna/19.1.0 Android"})
+	root, err := p.service.qishui.Search(ctx, keyword, "track")
 	if err != nil {
+		var failed *qishui.Failure
+		if errors.As(err, &failed) {
+			return nil, &problem{failed.StatusCode(), failed.Error()}
+		}
 		return nil, err
-	}
-	if number(root["status_code"]) != 0 || number(path(root, "status_info", "code")) != 0 || root["result_groups"] == nil {
-		return nil, &problem{503, "汽水搜索暂时不可用"}
 	}
 	return parseQishui(array(root["result_groups"]), limit), nil
 }
@@ -123,24 +126,39 @@ func qishuiAlbumCover(raw any) *string {
 
 func parseQishui(groups []any, limit int) []Track {
 	out := []Track{}
+	seen := map[string]bool{}
 	for _, group := range groups {
 		for _, raw := range array(path(group, "data")) {
 			row, ok := path(raw, "entity", "track").(map[string]any)
-			if !ok || !publicMusicID.MatchString(text(row["id"])) {
+			if !ok {
+				row, ok = path(raw, "entity", "track_wrapper", "track").(map[string]any)
+			}
+			if !ok {
 				continue
 			}
 			album, _ := row["album"].(map[string]any)
+			artists, cover, durationValue := row["artists"], album["url_cover"], row["duration"]
+			if base, car := row["base_info"].(map[string]any); car {
+				album, _ = path(row, "related_info", "album_link").(map[string]any)
+				artists = path(row, "related_info", "artist_links")
+				cover = path(row, "display_info", "cover_url")
+				durationValue, row = base["duration_ms"], base
+			}
+			if !publicMusicID.MatchString(text(row["id"])) || seen[text(row["id"])] {
+				continue
+			}
 			var duration *int
-			if n := number(row["duration"]); n > 0 && n <= 86_400_000 {
+			if n := number(durationValue); n > 0 && n <= 86_400_000 {
 				duration = ptr(int(n))
 			}
 			var release *string
 			if n := number(album["release_date"]); n > 0 && n < 253402300800 {
 				release = ptr(time.Unix(n, 0).UTC().Format("2006-01-02"))
 			}
-			t := track("QISHUI", first(row, "id"), publicText(row, "name"), names(row["artists"], "name"), publicText(album, "name"), duration, release, nil, qishuiAlbumCover(album["url_cover"]), "UNKNOWN")
+			t := track("QISHUI", first(row, "id"), publicText(row, "name"), names(artists, "name"), publicText(album, "name"), duration, release, nil, qishuiAlbumCover(cover), "UNKNOWN")
 			if t != nil {
-				t.ArtistRefs = refs(row["artists"], "QISHUI", "id")
+				seen[text(row["id"])] = true
+				t.ArtistRefs = refs(artists, "QISHUI", "id")
 				out = append(out, *t)
 			}
 			if len(out) >= limit {

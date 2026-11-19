@@ -4,7 +4,6 @@ package clientrelease
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -40,8 +39,10 @@ type Manifest struct {
 }
 type Release struct {
 	Manifest
-	Available bool   `json:"available"`
-	URL       string `json:"url,omitempty"`
+	Available bool              `json:"available"`
+	URL       string            `json:"url,omitempty"`
+	Variants  []DownloadVariant `json:"variants,omitempty"`
+	APKName   string            `json:"-"`
 }
 type Service struct{ Directory, TVOverride string }
 
@@ -76,8 +77,15 @@ func openRegular(root, relative string) (*os.File, error) {
 	return os.Open(name)
 }
 func (s *Service) Current(platform string) (Release, error) {
+	return s.CurrentForABI(platform, "")
+}
+
+func (s *Service) CurrentForABI(platform, abi string) (Release, error) {
 	if !validPlatform(platform) {
 		return Release{}, os.ErrNotExist
+	}
+	if abi != "" && !knownABI(platform, abi) {
+		return Release{}, errors.New("unsupported release ABI")
 	}
 	root, sub := s.location(platform)
 	if root == "" {
@@ -96,22 +104,14 @@ func (s *Service) Current(platform string) (Release, error) {
 	if err != nil || len(raw) > 65536 {
 		return Release{}, errors.New("invalid release manifest")
 	}
-	var m Manifest
-	if err = json.Unmarshal(raw, &m); err != nil {
+	m, filename, variants, err := selectManifest(raw, platform, abi)
+	if err != nil {
 		return Release{}, err
 	}
-	expectedSDK := 24
-	if platform == "tv" {
-		expectedSDK = 21
+	if filename == "" {
+		return Release{}, nil
 	}
-	expectedPackage := "com.mynora.singverse." + platform
-	if m.SchemaVersion != 1 || m.Platform != platform || m.VersionCode < 1 || m.VersionCode > 2100000000 ||
-		strings.TrimSpace(m.VersionName) == "" || len(m.VersionName) > 80 || m.PackageName != expectedPackage ||
-		m.MinSDK != expectedSDK || len(m.ABIs) == 0 || m.Size < 1 || m.Size > MaxAPKSize ||
-		!digestPattern.MatchString(m.SHA256) || !digestPattern.MatchString(m.CertificateSHA256) || len(m.Notes) > 16000 {
-		return Release{}, errors.New("invalid release metadata")
-	}
-	apk, err := openRegular(root, filepath.Join(sub, "singverse-"+platform+".apk"))
+	apk, err := openRegular(root, filepath.Join(sub, filename))
 	if err != nil {
 		return Release{}, err
 	}
@@ -127,7 +127,7 @@ func (s *Service) Current(platform string) (Release, error) {
 	if hex.EncodeToString(h.Sum(nil)) != m.SHA256 {
 		return Release{}, errors.New("release digest mismatch")
 	}
-	return Release{Manifest: m, Available: true, URL: "/api/v1/client-releases/" + platform + "/apk"}, nil
+	return Release{Manifest: m, Available: true, URL: "/api/v1/client-releases/" + platform + "/apk", Variants: variants, APKName: filename}, nil
 }
 func (s *Service) Register(r *gin.Engine) {
 	r.GET("/api/v1/client-releases/:platform", s.manifest)
@@ -142,10 +142,31 @@ func (s *Service) read(c *gin.Context) (Release, bool) {
 		httpx.Error(c, 404, "about:blank", "安装包类型不存在")
 		return Release{}, false
 	}
-	release, err := s.Current(platform)
+	abi := c.Query("abi")
+	if values, ok := c.Request.URL.Query()["abi"]; ok && (len(values) != 1 || abi == "") {
+		httpx.Error(c, 400, "about:blank", "安装包处理器架构无效")
+		return Release{}, false
+	}
+	headerABI := c.GetHeader("X-SingVerse-ABI")
+	if abi != "" && headerABI != "" && abi != headerABI {
+		httpx.Error(c, 400, "about:blank", "安装包处理器架构不一致")
+		return Release{}, false
+	}
+	if abi == "" {
+		abi = headerABI
+	}
+	if abi != "" && !knownABI(platform, abi) {
+		httpx.Error(c, 400, "about:blank", "安装包处理器架构无效")
+		return Release{}, false
+	}
+	c.Header("Vary", "X-SingVerse-ABI")
+	release, err := s.CurrentForABI(platform, abi)
 	if err != nil {
 		httpx.Error(c, 503, "about:blank", "安装包暂不可用，请联系管理员")
 		return Release{}, false
+	}
+	if release.Available && c.Query("abi") != "" {
+		release.URL += "?abi=" + abi
 	}
 	return release, true
 }
@@ -170,7 +191,7 @@ func (s *Service) apk(c *gin.Context) {
 		return
 	}
 	root, sub := s.location(c.Param("platform"))
-	filename := "singverse-" + release.Platform + ".apk"
+	filename := release.APKName
 	f, err := openRegular(root, filepath.Join(sub, filename))
 	if err != nil {
 		httpx.Error(c, 503, "about:blank", "安装包暂不可用")

@@ -17,6 +17,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from apk_signature import release_certificate
+from release_manifest import manifest_packages
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_APK = 256 << 20
@@ -146,9 +147,10 @@ def android_code(version):
         raise ValueError("Android version outside supported range")
     return code
 
-def verify_apk(directory, platform, release, apksigner, aapt):
-    apk = directory / ("singverse-" + platform + ".apk")
-    metadata = json.loads((directory / "release.json").read_text())
+def verify_apk(directory, platform, release, apksigner, aapt, filename=None, metadata=None):
+    apk = directory / (filename or "singverse-" + platform + ".apk")
+    if metadata is None:
+        metadata = json.loads((directory / "release.json").read_text())
     name = release["tag_name"].removeprefix("v")
     expected = {"schemaVersion": 1, "platform": platform, "packageName": "com.mynora.singverse." + platform,
                 "versionName": name, "versionCode": android_code(name), "minSdk": 24 if platform == "mobile" else 21}
@@ -225,8 +227,16 @@ def prepare(config, output, lock=None, apksigner="apksigner", aapt="aapt"):
             release = resolve(name, component, old)
             folder = Path(temporary) / name if name == "frontend" else stage / "releases" / name
             folder.mkdir(parents=True)
-            filenames = ["singverse-frontend.tar.gz"] if name == "frontend" else ["singverse-" + name + ".apk", "release.json"]
             records = {}
+            packages = []
+            if name == "frontend":
+                filenames = ["singverse-frontend.tar.gz"]
+            else:
+                records["release.json"] = download(component["repository"], release, "release.json", folder / "release.json", 65536,
+                                                    old["assets"]["release.json"] if old else None)
+                metadata = json.loads((folder / "release.json").read_text())
+                packages = manifest_packages(metadata, release["tag_name"].removeprefix("v"), name)
+                filenames = [filename for filename, _ in packages]
             for filename in filenames + ["SHA256SUMS"]:
                 maximum = MAX_APK if filename.endswith(".apk") else (128 << 20 if filename.endswith(".tar.gz") else 65536)
                 records[filename] = download(component["repository"], release, filename, folder / filename, maximum,
@@ -236,7 +246,9 @@ def prepare(config, output, lock=None, apksigner="apksigner", aapt="aapt"):
             if name == "frontend":
                 extract_frontend(folder / filenames[0], stage / "frontend")
             else:
-                record["manifest"] = verify_apk(folder, name, release, apksigner, aapt)
+                for filename, item in packages:
+                    verify_apk(folder, name, release, apksigner, aapt, filename, item)
+                record["manifest"] = metadata
             result["components"][name] = record
         (stage / "components.lock.json").write_text(json.dumps(result, indent=2) + "\n")
         if output.exists():

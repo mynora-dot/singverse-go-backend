@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/jsondata"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"html"
 	"io"
 	"math"
@@ -14,14 +15,21 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type catalogNetwork interface {
 	Request(context.Context, string, string, map[string]string, []byte, int, bool) (Reply, error)
 }
-type publicCatalog struct{ network catalogNetwork }
+type publicCatalog struct {
+	network    catalogNetwork
+	qsOnce     sync.Once
+	qs         *qishuiCatalog
+	qsErr      error
+	queryCache querycache.Cache
+}
 
-func newCatalog(network *Network) Catalog { return &publicCatalog{network} }
+func newCatalog(network *Network) Catalog { return &publicCatalog{network: network} }
 func unavailable(message string) error    { return &problem{502, message} }
 func asObject(v any) map[string]any       { m, _ := v.(map[string]any); return m }
 func asArray(v any) []any                 { a, _ := v.([]any); return a }
@@ -337,6 +345,31 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 				quality(&qs, q.kind, nil, "present")
 			}
 		}
+	case "qs":
+		base := asObject(row["base_info"])
+		related := asObject(row["related_info"])
+		al := asObject(related["album_link"])
+		if len(base) == 0 {
+			base = row
+			al = asObject(row["album"])
+			singers = row["artists"]
+			duration = durationMillis(row["duration"], false)
+			cover = qishuiCover(al["url_cover"])
+		} else {
+			singers = related["artist_links"]
+			duration = durationMillis(base["duration_ms"], false)
+			cover = qishuiCover(at(row, "display_info", "cover_url"))
+		}
+		id = catalogText(base, "id")
+		if !catalogDigits.MatchString(id) || len(id) > 30 {
+			return Track{}, errors.New("invalid qishui id")
+		}
+		title = catalogText(base, "name")
+		album = catalogText(al, "name")
+		albumID = catalogText(al, "id")
+		meta["songId"] = id
+		// Only public identity metadata is sent to a source, never player credentials.
+		row = map[string]any{"id": id}
 	case "mg":
 		id = catalogText(row, "songId", "id")
 		copyright := catalogText(row, "copyrightId")

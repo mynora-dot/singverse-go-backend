@@ -98,7 +98,7 @@ func (s *Service) Register(r *gin.Engine) {
 					if strings.TrimSpace(v.Query) == "" || search.UTF16Length(v.Query) > 200 {
 						e = failure(400, "搜索测试关键词应为 1～200 字符")
 					} else {
-						out.Results, e = s.Search(c.Request.Context(), snap, strings.TrimSpace(v.Query))
+						out.Results, e = s.testSearch(c.Request.Context(), snap, strings.TrimSpace(v.Query))
 						out.Message = "查询成功，未找到结果"
 						if len(out.Results) > 0 {
 							out.Message = fmt.Sprintf("查询成功，返回 %d 条结果", len(out.Results))

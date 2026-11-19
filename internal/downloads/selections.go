@@ -85,7 +85,7 @@ func (s *Service) Search(ctx context.Context, query, platform string, page int) 
 	}
 	codes := []string{}
 	if platform == "" || platform == "all" {
-		for _, p := range []string{"wy", "tx", "kg", "kw", "mg"} {
+		for _, p := range []string{"wy", "tx", "kg", "kw", "mg", "qs"} {
 			if _, ok := enabled[p]; ok {
 				codes = append(codes, p)
 			}

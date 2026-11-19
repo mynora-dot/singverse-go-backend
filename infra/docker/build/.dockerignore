@@ -7,8 +7,10 @@
 !.build/platform/frontend/**
 !.build/platform/releases/mobile/release.json
 !.build/platform/releases/mobile/singverse-mobile.apk
+!.build/platform/releases/mobile/singverse-mobile-*.apk
 !.build/platform/releases/tv/release.json
 !.build/platform/releases/tv/singverse-tv.apk
+!.build/platform/releases/tv/singverse-tv-*.apk
 !.build/platform/components.lock.json
 internal/web/dist/
 **/.git

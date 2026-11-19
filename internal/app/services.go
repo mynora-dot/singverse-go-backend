@@ -19,6 +19,7 @@ import (
 	"github.com/mynora-dot/singverse-go-backend/internal/overview"
 	"github.com/mynora-dot/singverse-go-backend/internal/party"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/config"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/qishui"
 	"github.com/mynora-dot/singverse-go-backend/internal/playback"
 )
 
@@ -43,6 +44,11 @@ type applicationServices struct {
 }
 
 func (a *Application) initializeServices(cfg config.Config, db *sqlx.DB, logger *slog.Logger) (*applicationServices, error) {
+	qishuiClient, err := qishui.New(nil)
+	if err != nil {
+		return nil, err
+	}
+	a.closers = append(a.closers, qishuiClient.Close)
 	accounts, err := auth.New(db, cfg.Driver, cfg, logger)
 	if err != nil {
 		return nil, err
@@ -82,13 +88,13 @@ func (a *Application) initializeServices(cfg config.Config, db *sqlx.DB, logger 
 	if err != nil {
 		return nil, err
 	}
-	curation, err := catalog.New(db, cfg.Driver, cfg, media, models, accounts.Cipher, devices, logger)
+	curation, err := catalog.New(db, cfg.Driver, cfg, media, models, accounts.Cipher, devices, logger, catalog.WithQishuiClient(qishuiClient))
 	if err != nil {
 		return nil, err
 	}
 	a.closers = append(a.closers, curation.Close)
 	curation.SetProjector(tasks.Project)
-	tags, err := metadata.New(db, cfg.Driver, cfg, accounts.Cipher, media, logger)
+	tags, err := metadata.New(db, cfg.Driver, cfg, accounts.Cipher, media, logger, metadata.WithQishuiClient(qishuiClient))
 	if err != nil {
 		return nil, err
 	}

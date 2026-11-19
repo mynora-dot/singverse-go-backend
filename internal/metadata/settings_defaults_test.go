@@ -16,8 +16,9 @@ func TestMySQLDefaultMusicPlatforms(t *testing.T) {
 func exerciseDefaultMusicPlatforms(t *testing.T, f *fixture) {
 	t.Helper()
 	settings := request(t, f.router, "GET", "/api/v1/metadata/settings", nil, 200)
-	if !boolean(settings["enabled"]) || encode(stringsOf(settings["providers"])) != encode(providers) || boolean(settings["autoApply"]) || settings["threshold"] != .8 || number(settings["minIntervalSeconds"]) != 1 || number(settings["maxIntervalSeconds"]) != 2 {
-		t.Fatal("fresh install must enable all platforms without enabling automatic writes", settings)
+	defaults := []string{"NETEASE", "QQ", "KUGOU", "KUWO", "QISHUI"}
+	if !boolean(settings["enabled"]) || encode(stringsOf(settings["providers"])) != encode(defaults) || boolean(settings["autoApply"]) || settings["threshold"] != .8 || number(settings["minIntervalSeconds"]) != 1 || number(settings["maxIntervalSeconds"]) != 2 {
+		t.Fatal("adding optional providers must preserve installation defaults and automatic write preferences", settings)
 	}
 	input := Settings{Enabled: false, Providers: []string{"QQ"}, AutoApply: true, Threshold: .98, MinIntervalSeconds: ptr(0), MaxIntervalSeconds: ptr(20)}
 	request(t, f.router, "PUT", "/api/v1/metadata/settings", input, 200)

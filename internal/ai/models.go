@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
 )
 
@@ -93,6 +94,19 @@ func (s *Service) DiscoverModels(ctx context.Context, v ModelDiscoveryInput) (Mo
 	default:
 		bearer(headers, key)
 	}
+	cacheKey := querycache.Key("models", v.ServiceID, format(v.Revision), v.Provider, v.Protocol, listEndpoint, key, format(v.TimeoutSeconds))
+	return querycache.Load(ctx, &s.queryCache, cacheKey, func(ctx context.Context) (ModelDiscoveryResult, time.Duration, error) {
+		out, err := discoverModels(ctx, v, listEndpoint, headers)
+		ttl := 15 * time.Minute
+		if len(out.Items) == 0 {
+			ttl = time.Minute
+		}
+		return out, ttl, err
+	})
+}
+
+func discoverModels(ctx context.Context, v ModelDiscoveryInput, listEndpoint string, headers map[string]string) (ModelDiscoveryResult, error) {
+	out := ModelDiscoveryResult{Items: []ModelOption{}}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(v.TimeoutSeconds)*time.Second)
 	defer cancel()
 	seen, cursors := map[string]bool{}, map[string]bool{}

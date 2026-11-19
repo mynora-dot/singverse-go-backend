@@ -11,8 +11,11 @@ LOCK_ARGS = $(if $(COMPONENT_LOCK),--lock "$(COMPONENT_LOCK)",)
 .PHONY: docker-local-up docker-local-down docker-local-status docker-local-logs docker-local-releases
 .PHONY: docker-macos-up
 .PHONY: lan-discovery
+.PHONY: qishui-check
 lan-discovery:
 	$(PYTHON) scripts/lan-discovery.py $(if $(DISCOVERY_CONTAINER),--container "$(DISCOVERY_CONTAINER)",)
+qishui-check:
+	sh scripts/run-go.sh run ./cmd/qishui-check -require-results $(if $(QUERY),-query "$(QUERY)",)
 docker-macos-up:
 	$(PYTHON) scripts/deploy-macos.py
 docker-local-releases:

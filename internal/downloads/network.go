@@ -33,6 +33,22 @@ type Download struct {
 }
 type Network struct{ client *http.Client }
 
+type audioResponseError struct{ code int }
+
+func (e *audioResponseError) Error() string {
+	return fmt.Sprintf("音频下载返回 HTTP %d，请重新解析或更换音源", e.code)
+}
+func (*audioResponseError) StatusCode() int { return 400 }
+func (e *audioResponseError) Is(target error) bool {
+	return target == lxruntime.ErrQualityUnavailable && (e.code == 401 || e.code == 403 || e.code == 404 || e.code == 410)
+}
+
+type audioContentError struct{ detail string }
+
+func (e *audioContentError) Error() string { return e.detail }
+func (*audioContentError) StatusCode() int { return 400 }
+func (*audioContentError) Unwrap() error   { return lxruntime.ErrQualityUnavailable }
+
 func NewNetwork() *Network {
 	return &Network{client: &http.Client{Transport: lxruntime.PublicTransport(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
@@ -52,12 +68,21 @@ func (n *Network) perform(ctx context.Context, address, method string, headers m
 		safe.Set(k, v)
 	}
 	for hop := 0; hop <= 5; hop++ {
-		req, e := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
-		if e != nil {
-			return bad("请求参数无效")
+		var response *http.Response
+		var e error
+		for attempt := 0; attempt < 2; attempt++ {
+			req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
+			if err != nil {
+				return bad("请求参数无效")
+			}
+			req.Header = safe.Clone()
+			response, e = n.client.Do(req)
+			// Retry a read once only before receiving headers or writing any audio.
+			// DNS and redirect checks remain on the same controlled transport.
+			if e == nil || ctx.Err() != nil || method != "GET" && method != "HEAD" {
+				break
+			}
 		}
-		req.Header = safe.Clone()
-		response, e := n.client.Do(req)
 		if e != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -129,7 +154,7 @@ func (n *Network) Download(ctx context.Context, address, temporary string, progr
 	var result Download
 	err := n.perform(ctx, address, "GET", map[string]string{"Accept-Encoding": "identity"}, nil, false, func(response *http.Response) error {
 		if response.StatusCode != 200 {
-			return bad(fmt.Sprintf("音频下载返回 HTTP %d，请重新解析或更换音源", response.StatusCode))
+			return &audioResponseError{response.StatusCode}
 		}
 		declared := response.ContentLength
 		if declared > maxAudio || declared == 0 {
@@ -161,6 +186,10 @@ func (n *Network) Download(ctx context.Context, address, temporary string, progr
 		if declared >= 0 {
 			total = &declared
 		}
+		if e = progress(0, total); e != nil {
+			return e
+		}
+		last = time.Now()
 		for {
 			if e := ctx.Err(); e != nil {
 				return e
@@ -198,6 +227,9 @@ func (n *Network) Download(ctx context.Context, address, temporary string, progr
 		if received < 16 || declared >= 0 && received != declared {
 			return bad("音频未完整传输，请重试")
 		}
+		if e = progress(received, total); e != nil {
+			return e
+		}
 		if e = file.Sync(); e != nil {
 			return bad("无法保存下载文件，请检查剩余空间")
 		}
@@ -207,13 +239,16 @@ func (n *Network) Download(ctx context.Context, address, temporary string, progr
 		closed = true
 		extension, e := audioExtension(prefix)
 		if e != nil {
-			return e
+			return &audioContentError{e.Error()}
 		}
 		if e = validateAudio(ctx, temporary, extension); e != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(e, errIncompleteAudio) || errors.Is(e, io.EOF) || errors.Is(e, io.ErrUnexpectedEOF) {
+				return &audioContentError{"返回内容不是完整的音频文件，请重新解析或更换音源"}
+			}
 			return bad("返回内容不是完整的音频文件，请重新解析或更换音源")
-		}
-		if e = progress(received, total); e != nil {
-			return e
 		}
 		result = Download{received, hex.EncodeToString(digest.Sum(nil)), extension}
 		return nil

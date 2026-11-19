@@ -23,7 +23,7 @@ import (
 	"github.com/mynora-dot/singverse-go-backend/internal/metastandard"
 )
 
-var coverHosts = map[string][]string{"NETEASE": {"music.126.net"}, "QQ": {"y.gtimg.cn"}, "KUGOU": {"kugou.com", "kugoucdn.com", "kgimg.com"}, "KUWO": {"img1.kuwo.cn", "img2.kuwo.cn", "img3.kuwo.cn", "img4.kuwo.cn"}, "QISHUI": {"p3-luna.douyinpic.com", "p6-luna.douyinpic.com"}}
+var coverHosts = map[string][]string{"NETEASE": {"music.126.net"}, "QQ": {"y.gtimg.cn"}, "KUGOU": {"kugou.com", "kugoucdn.com", "kgimg.com"}, "KUWO": {"img1.kuwo.cn", "img2.kuwo.cn", "img3.kuwo.cn", "img4.kuwo.cn"}, "QISHUI": {"p3-luna.douyinpic.com", "p6-luna.douyinpic.com"}, "MIGU": {"d.musicapp.migu.cn"}}
 
 type Cover struct {
 	Bytes         []byte
@@ -329,14 +329,14 @@ func (s *Service) candidateCover(c *gin.Context) {
 	imageResponse(c, cover)
 }
 func (s *Service) SongCover(ctx context.Context, id string) (Cover, error) {
-	if cover, found, e := s.formalCover(ctx, id); found {
-		return cover, e
-	}
-	if _, err := s.PersistCover(ctx, id); err != nil {
-		return Cover{}, err
-	}
+	// Adopt an accepted replacement before reading the previous formal cover.
+	// If saving the replacement fails, the durable prior artwork remains usable.
+	_, persistErr := s.PersistCover(ctx, id)
 	if cover, found, err := s.formalCover(ctx, id); found {
 		return cover, err
+	}
+	if persistErr != nil {
+		return Cover{}, persistErr
 	}
 	song, e := s.song(ctx, s.db, id)
 	if e != nil {

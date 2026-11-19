@@ -101,7 +101,7 @@ func TestCatalogFivePlatformSearchDetailAndCollections(t *testing.T) {
 		t.Run(p, func(t *testing.T) {
 			row := catalogRow(p)
 			network := &catalogFixture{route: func(u *url.URL) (any, error) { return catalogWrap(p, row, "search"), nil }}
-			c := &publicCatalog{network}
+			c := &publicCatalog{network: network}
 			found, e := c.Search(context.Background(), p, "测试", 1)
 			if e != nil || len(found.Tracks) != 1 {
 				t.Fatal(found, e)
@@ -152,7 +152,7 @@ func TestCatalogRestrictedPartialCollectionsAndVersions(t *testing.T) {
 	network := &catalogFixture{route: func(*url.URL) (any, error) {
 		return map[string]any{"code": 0, "data": map[string]any{"list": rows, "name": "专辑", "total": 30}}, nil
 	}}
-	c := &publicCatalog{network}
+	c := &publicCatalog{network: network}
 	first, e := c.Collection(context.Background(), CatalogReference{"tx", "album", "123"}, 1)
 	if e != nil || len(first.Tracks) != 20 || !first.HasMore {
 		t.Fatal(first, e)
@@ -189,7 +189,7 @@ func TestCatalogRestrictedPartialCollectionsAndVersions(t *testing.T) {
 }
 func TestCatalogOfficialSharesShortLinksAndUntrustedHosts(t *testing.T) {
 	network := &catalogFixture{route: func(*url.URL) (any, error) { return nil, fmt.Errorf("unexpected network") }}
-	c := &publicCatalog{network}
+	c := &publicCatalog{network: network}
 	for address, want := range map[string]string{"https://music.163.com/#/playlist?id=123": "wy:playlist:123", "https://music.163.com/album?id=123": "wy:album:123", "https://y.qq.com/n/ryqq/albumDetail/001AlbumMid": "tx:album:001AlbumMid", "https://y.qq.com/n/ryqq/playlist/123": "tx:playlist:123", "https://www.kugou.com/yy/special/single/123.html": "kg:playlist:123", "https://m.kugou.com/album/info/123": "kg:album:123", "https://www.kuwo.cn/playlist_detail/123": "kw:playlist:123", "https://www.kuwo.cn/album_detail/123": "kw:album:123", "https://music.migu.cn/v3/music/playlist/123": "mg:playlist:123", "https://music.migu.cn/v3/music/album/123": "mg:album:123"} {
 		ref, e := c.Reference(context.Background(), "分享给你 "+address)
 		if e != nil || ref.Platform+":"+ref.Kind+":"+ref.ID != want {
@@ -214,6 +214,9 @@ func TestCatalogOfficialSharesShortLinksAndUntrustedHosts(t *testing.T) {
 	network.route = func(*url.URL) (any, error) {
 		return Reply{Status: 200, URL: "https://music.163.com/playlist?id=123"}, nil
 	}
+	// A new reader exercises redirect validation instead of the previous valid
+	// short-link cache. A valid hit intentionally performs no upstream request.
+	c = &publicCatalog{network: network}
 	if _, e = c.Reference(context.Background(), "https://qm.qq.com/q/short"); e == nil {
 		t.Fatal("cross platform redirect accepted")
 	}
@@ -222,13 +225,14 @@ func TestCatalogParsesDataOnlyAndLyrics(t *testing.T) {
 	network := &catalogFixture{route: func(*url.URL) (any, error) {
 		return `{'TOTAL':'1','abslist':[{'MUSICRID':'MUSIC_101','SONGNAME':'晴天','ARTIST':'周杰伦','ALBUM':'叶惠美','DURATION':'269'}]}`, nil
 	}}
-	c := &publicCatalog{network}
+	c := &publicCatalog{network: network}
 	page, e := c.Search(context.Background(), "kw", "晴天", 1)
 	if e != nil || len(page.Tracks) != 1 || page.Tracks[0].Title != "晴天" || *page.Tracks[0].DurationMS != 269000 {
 		t.Fatal(page, e)
 	}
 	for _, code := range []string{`{'TOTAL':(function(){throw 'evil'})()}`, `alert({"TOTAL":1}) trailing`, `{"TOTAL":1};process.exit()`} {
 		network.route = func(*url.URL) (any, error) { return code, nil }
+		c = &publicCatalog{network: network}
 		if _, e = c.Search(context.Background(), "kw", "晴天", 1); e == nil {
 			t.Fatal("provider code accepted", code)
 		}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/jmoiron/sqlx"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/config"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"log/slog"
@@ -23,15 +24,16 @@ import (
 var files embed.FS
 
 type Service struct {
-	db        *sqlx.DB
-	q         map[string]string
-	cipher    Cipher
-	log       *slog.Logger
-	mu        sync.Mutex
-	testing   map[string]bool
-	cooldowns map[string]time.Time
-	pause     func(context.Context, store.DBTX) error
-	tester    func(context.Context, Snapshot) error
+	db         *sqlx.DB
+	q          map[string]string
+	cipher     Cipher
+	log        *slog.Logger
+	mu         sync.Mutex
+	testing    map[string]bool
+	cooldowns  map[string]time.Time
+	pause      func(context.Context, store.DBTX) error
+	tester     func(context.Context, Snapshot) error
+	queryCache querycache.Cache
 }
 
 func New(db *sqlx.DB, dialect string, cfg config.Config, cipher Cipher, log *slog.Logger) (*Service, error) {

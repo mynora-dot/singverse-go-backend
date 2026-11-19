@@ -220,3 +220,17 @@ func TestCapabilitiesWhitelist(t *testing.T) {
 		t.Fatal("accepted nonofficial action")
 	}
 }
+
+func TestQishuiCapabilitiesAndRequestKeepStringIdentity(t *testing.T) {
+	r := New("")
+	defer r.Close()
+	script := `lx.send('inited',{sources:{qs:{actions:['musicUrl'],qualitys:['32k','64k','128k','256k','320k','flac']}}});lx.on('request',({source,action,info})=>{if(source!=='qs'||action!=='musicUrl'||info.type!=='256k'||info.musicInfo.songmid!=='7146244493748996128')throw Error('request mismatch');return 'https://example.com/audio.m4a'});`
+	cap, err := r.Inspect(t.Context(), script, "mobile")
+	if err != nil || strings.Join(cap["qs"], ",") != "flac,320k,256k,128k,64k,32k" {
+		t.Fatal(cap, err)
+	}
+	address, err := r.Resolve(t.Context(), script, "mobile", "qs", "256k", map[string]any{"songmid": "7146244493748996128"})
+	if err != nil || address != "https://example.com/audio.m4a" {
+		t.Fatal("Qishui request mapping failed", err)
+	}
+}

@@ -3,6 +3,7 @@ package metadata
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"hash/crc32"
 	"image"
@@ -71,8 +72,12 @@ func TestCoverQualityVariantsAndBoundaries(t *testing.T) {
 		{"NETEASE", "http://p2.music.126.net/a.jpg?param=640y640", "https://p2.music.126.net/a.jpg", "https://p2.music.126.net/a.jpg?param=2048y2048"},
 		{"QQ", "https://y.gtimg.cn/music/photo_new/T002R300x300M000album.jpg", "https://y.gtimg.cn/music/photo_new/T002M000album.jpg", "https://y.gtimg.cn/music/photo_new/T002R1500x1500M000album.jpg"},
 		{"KUGOU", "https://imge.kugou.com/stdmusic/400/a.jpg", "https://imge.kugou.com/stdmusic/0/a.jpg", "https://imge.kugou.com/stdmusic/2048/a.jpg"},
+		{"KUGOU", "http://singerimg.kugou.com/uploadpic/softhead/{size}/20230804/a.jpg", "https://singerimg.kugou.com/uploadpic/softhead/2048/20230804/a.jpg", "https://singerimg.kugou.com/uploadpic/softhead/2048/20230804/a.jpg"},
+		{"KUGOU", "https://singerimg.kugou.com/uploadpic/softhead/0/20230804/a.jpg", "https://singerimg.kugou.com/uploadpic/softhead/2048/20230804/a.jpg", "https://singerimg.kugou.com/uploadpic/softhead/2048/20230804/a.jpg"},
+		{"KUGOU", "https://singerimg.kugou.com/uploadpic/pass/softhead/120/20230804/a.jpg", "https://singerimg.kugou.com/uploadpic/pass/softhead/2048/20230804/a.jpg", "https://singerimg.kugou.com/uploadpic/pass/softhead/2048/20230804/a.jpg"},
 		{"KUWO", "https://img1.kuwo.cn/star/albumcover/120/a.jpg", "https://img1.kuwo.cn/star/albumcover/0/a.jpg", "https://img1.kuwo.cn/star/albumcover/2048/a.jpg"},
 		{"QISHUI", "https://p3-luna.douyinpic.com/img/a~tplv-test-resize:640:640.png", "https://p3-luna.douyinpic.com/img/a~tplv-test-image.image", "https://p3-luna.douyinpic.com/img/a~tplv-test-resize:2048:2048.png"},
+		{"MIGU", "https://d.musicapp.migu.cn/data/cover.webp", "https://d.musicapp.migu.cn/data/cover.webp", "https://d.musicapp.migu.cn/data/cover.webp"},
 	} {
 		t.Run(tc.provider, func(t *testing.T) {
 			if got := coverVariant(&tc.provider, &tc.raw, "ORIGINAL"); got == nil || *got != tc.original {
@@ -99,12 +104,61 @@ func TestCoverQualityVariantsAndBoundaries(t *testing.T) {
 	}
 }
 
-func TestFiveProviderReviewAndCoverQuality(t *testing.T) { exerciseFiveProviderReview(t, setup(t)) }
-func TestMySQLFiveProviderReviewAndCoverQuality(t *testing.T) {
-	db, cfg := testutil.MySQLDatabase(t)
-	exerciseFiveProviderReview(t, setupWithDatabase(t, db, "mysql", cfg))
+func TestKugouPortraitPreviewAndSavedCoverKeepLargeBytes(t *testing.T) {
+	f := setup(t)
+	_, ids := f.local(t, "A-Song.mkv")
+	id := ids[0]
+	request(t, f.router, "PUT", "/api/v1/metadata/settings", Settings{Enabled: true, Providers: []string{"KUGOU"}, Threshold: .95}, 200)
+	raw := "https://singerimg.kugou.com/uploadpic/softhead/0/20230804/portrait.jpg"
+	large := strings.Replace(raw, "/softhead/0/", "/softhead/2048/", 1)
+	var original []byte
+	for _, item := range []struct {
+		url  string
+		size int
+	}{{raw, 52}, {large, 1024}} {
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, item.size, item.size))); err != nil {
+			t.Fatal(err)
+		}
+		if err := atomicWrite(filepath.Join(f.cfg.MetadataCachePath, hash("KUGOU:"+item.url)+".image"), buf.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+		if item.size == 1024 {
+			original = buf.Bytes()
+		}
+	}
+	track := testTrack("Song")
+	track.Provider, track.CoverURL = ptr("KUGOU"), &raw
+	f.s.providers["KUGOU"] = fakeProvider{tracks: []Track{track}}
+	result := request(t, f.router, "POST", "/api/v1/metadata/songs/"+id+"/search", SearchInput{}, 200)
+	candidate := text(array(result["candidates"])[0].(map[string]any)["id"])
+	for _, query := range []string{"", "?quality=ORIGINAL", "?quality=HIGH"} {
+		w := httptest.NewRecorder()
+		f.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/metadata/candidates/"+candidate+"/cover"+query, nil))
+		if w.Code != 200 || w.Header().Get("X-SingVerse-Image-Width") != "1024" || !bytes.Equal(w.Body.Bytes(), original) {
+			t.Fatalf("candidate preview used tiny cached avatar: %s status=%d width=%s", query, w.Code, w.Header().Get("X-SingVerse-Image-Width"))
+		}
+	}
+	review := request(t, f.router, "GET", "/api/v1/metadata/songs/"+id+"/review", nil, 200)
+	response := request(t, f.router, "POST", "/api/v1/metadata/songs/"+id+"/review/apply", ReviewApply{RequestID: uuid(), Fingerprint: text(review["fingerprint"]), Version: text(review["version"]), Fields: []string{"cover"}, CoverCandidateID: &candidate}, 200)
+	if text(path(response, "after", "cover")) != large {
+		t.Fatal("review saved a different image version", response)
+	}
+	if _, err := f.s.PersistCover(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := f.s.SongCover(context.Background(), id)
+	if err != nil || saved.Width != 1024 || !bytes.Equal(saved.Bytes, original) {
+		t.Fatal("formal cover differs from candidate preview", saved.Width, err)
+	}
 }
-func exerciseFiveProviderReview(t *testing.T, f *fixture) {
+
+func TestSixProviderReviewAndCoverQuality(t *testing.T) { exerciseSixProviderReview(t, setup(t)) }
+func TestMySQLSixProviderReviewAndCoverQuality(t *testing.T) {
+	db, cfg := testutil.MySQLDatabase(t)
+	exerciseSixProviderReview(t, setupWithDatabase(t, db, "mysql", cfg))
+}
+func exerciseSixProviderReview(t *testing.T, f *fixture) {
 	t.Helper()
 	_, ids := f.local(t, "A-Song.mkv")
 	id := ids[0]
@@ -118,7 +172,7 @@ func exerciseFiveProviderReview(t *testing.T, f *fixture) {
 		f.s.providers[provider] = fakeProvider{tracks: []Track{track}}
 	}
 	result := request(t, f.router, "POST", "/api/v1/metadata/songs/"+id+"/search", SearchInput{Providers: providers}, 200)
-	if len(result["candidates"].([]any)) != 5 {
+	if len(result["candidates"].([]any)) != len(providers) {
 		t.Fatal("not all enabled providers were searched", result)
 	}
 	candidate := ""
@@ -145,5 +199,30 @@ func exerciseFiveProviderReview(t *testing.T, f *fixture) {
 	f.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/metadata/candidates/"+candidate+"/cover?quality=THUMBNAIL", nil))
 	if w.Code != 400 {
 		t.Fatal("unsupported image quality accepted", w.Code)
+	}
+}
+
+func TestPlatformWebPOriginalRetainsBytes(t *testing.T) {
+	original, err := base64.StdEncoding.DecodeString("UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAdQqFIUr/+BiOh/AAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: artworkTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(original))}, nil
+	})}
+	cover, err := fetchCover(context.Background(), client, "https://d.musicapp.migu.cn/data/cover.webp")
+	if err != nil || cover.MIME != "image/webp" || !bytes.Equal(cover.Bytes, original) {
+		t.Fatal("Migu WebP original was rejected or changed", cover.MIME, err)
+	}
+	path := filepath.Join(t.TempDir(), "cover.image")
+	if err := atomicWrite(path, cover.Bytes); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := readRemoteCover(path)
+	if err != nil || !bytes.Equal(cached.Bytes, original) {
+		t.Fatal("cached WebP original was rejected or changed", err)
+	}
+	if _, _, err := metastandard.InspectAsset(cover.Bytes, cover.MIME); err != nil {
+		t.Fatal("platform WebP cannot be stored as a formal asset", err)
 	}
 }

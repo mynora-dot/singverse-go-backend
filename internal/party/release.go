@@ -69,11 +69,19 @@ func (s *Service) release() (document, error) {
 		return nil, invalid
 	}
 	var v struct {
-		VersionCode int64  `json:"versionCode"`
-		VersionName string `json:"versionName"`
+		SchemaVersion int    `json:"schemaVersion"`
+		VersionCode   int64  `json:"versionCode"`
+		VersionName   string `json:"versionName"`
 	}
 	if err = json.Unmarshal(raw, &v); err != nil || v.VersionCode < 1 || strings.TrimSpace(v.VersionName) == "" || len(v.VersionName) > 80 {
 		return nil, invalid
+	}
+	if v.SchemaVersion == 2 {
+		release, err := clientrelease.New("", s.cfg.TVReleaseDirectory).Current("tv")
+		if err != nil || !release.Available {
+			return nil, invalid
+		}
+		return document{"available": true, "versionCode": release.VersionCode, "versionName": release.VersionName, "size": release.Size, "sha256": release.SHA256, "url": "/api/v1/tv/releases/apk"}, nil
 	}
 	path, err := s.releasePath("singverse-tv.apk")
 	if err != nil {
@@ -95,7 +103,19 @@ func (s *Service) release() (document, error) {
 	return document{"available": true, "versionCode": v.VersionCode, "versionName": v.VersionName, "size": info.Size(), "sha256": hex.EncodeToString(digest.Sum(nil)), "url": "/api/v1/tv/releases/apk"}, nil
 }
 func (s *Service) apk(c *gin.Context) {
-	path, err := s.releasePath("singverse-tv.apk")
+	release, readErr := clientrelease.New(s.cfg.ClientReleaseDirectory, s.cfg.TVReleaseDirectory).Current("tv")
+	name := release.APKName
+	if readErr != nil || !release.Available {
+		// Historical TV directories may contain only the brief legacy manifest.
+		// Validate it before falling back, so an invalid variant index cannot
+		// expose a stale universal package left in the same directory.
+		if _, err := s.release(); err != nil {
+			s.report(c, err)
+			return
+		}
+		name = "singverse-tv.apk"
+	}
+	path, err := s.releasePath(name)
 	if err != nil {
 		s.report(c, err)
 		return

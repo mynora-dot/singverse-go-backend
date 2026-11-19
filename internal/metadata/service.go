@@ -16,6 +16,8 @@ import (
 	"github.com/mynora-dot/singverse-go-backend/internal/library"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/config"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/httpx"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/qishui"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
 
@@ -42,6 +44,7 @@ type Service struct {
 	providers       map[string]Provider
 	guards          map[string]*providerGuard
 	client          *http.Client
+	qishui          *qishui.Client
 	deviceID        string
 	remote          func(context.Context, map[string]any) (map[string]any, error)
 	grants          map[string]*grant
@@ -58,9 +61,14 @@ type Service struct {
 	fileMu          sync.Mutex
 	shareMu         sync.Mutex
 	importMu        sync.Mutex
+	queryCache      querycache.Cache
 }
 
-func New(db *sqlx.DB, dialect string, cfg config.Config, cipher Cipher, lib *library.Service, log *slog.Logger) (*Service, error) {
+type Option func(*Service)
+
+func WithQishuiClient(client *qishui.Client) Option { return func(s *Service) { s.qishui = client } }
+
+func New(db *sqlx.DB, dialect string, cfg config.Config, cipher Cipher, lib *library.Service, log *slog.Logger, options ...Option) (*Service, error) {
 	q, err := store.ReadQueries(queryFiles, "sql")
 	if err != nil {
 		return nil, err
@@ -70,6 +78,16 @@ func New(db *sqlx.DB, dialect string, cfg config.Config, cipher Cipher, lib *lib
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{db: db, dialect: dialect, cfg: cfg, cipher: cipher, library: lib, log: log, q: q, ctx: ctx, cancel: cancel, providers: map[string]Provider{}, guards: map[string]*providerGuard{}, deviceID: hash(uuid())[:32], requestInterval: 2 * time.Second, grants: map[string]*grant{}, client: &http.Client{Transport: &http.Transport{Proxy: nil, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 30 * time.Second}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	for _, option := range options {
+		option(s)
+	}
+	if s.qishui == nil {
+		s.qishui, err = qishui.New(s.client)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+	}
 	for _, p := range providers {
 		s.guards[p] = &providerGuard{permit: make(chan struct{}, 1)}
 		s.providers[p] = &musicProvider{service: s, name: p}
@@ -106,6 +124,7 @@ func (s *Service) Close() error {
 	s.grantMu.Unlock()
 	s.wg.Wait()
 	s.client.CloseIdleConnections()
+	s.qishui.Close()
 	return nil
 }
 func (s *Service) SetProjector(fn func(context.Context, store.DBTX, string, string) error) {
@@ -250,7 +269,7 @@ func (s *Service) fail(c *gin.Context, e error) {
 	if status >= 500 {
 		detail = "操作失败，请稍后重试"
 		if status == 503 {
-			detail = "平台或计算节点暂不可用，请稍后重试"
+			detail = safeDetail(e)
 		}
 		s.log.Error("metadata operation failed", "operation", c.FullPath())
 	}

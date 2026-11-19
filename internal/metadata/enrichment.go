@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -95,7 +96,14 @@ func (s *Service) search(ctx context.Context, song map[string]any, input SearchI
 	if e != nil || keyword == "" {
 		return out, bad("搜索关键词需要 1～200 个字符")
 	}
-	seen := map[string]bool{}
+	type providerResult struct {
+		name   string
+		tracks []Track
+		err    error
+	}
+	results := make([]providerResult, len(seenP))
+	index := 0
+	var calls sync.WaitGroup
 	for _, p := range selected {
 		if !seenP[p] {
 			continue
@@ -113,12 +121,27 @@ func (s *Service) search(ctx context.Context, song map[string]any, input SearchI
 				query = title
 			}
 		}
-		tracks, err := s.callProvider(ctx, p, provider, query)
-		if err != nil {
-			out.Errors = append(out.Errors, ProviderError{p, safeDetail(err)})
+		i := index
+		index++
+		results[i].name = p
+		calls.Go(func() {
+			tracks, err := s.callProvider(ctx, p, provider, query)
+			results[i].tracks, results[i].err = tracks, err
+		})
+	}
+	calls.Wait()
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
+	// Fetch independently, then persist in request order. Database writes, candidate
+	// deduplication and error ordering stay serial, including on single-connection SQLite.
+	seen := map[string]bool{}
+	for _, result := range results {
+		if result.err != nil {
+			out.Errors = append(out.Errors, ProviderError{result.name, safeDetail(result.err)})
 			continue
 		}
-		for _, t := range tracks {
+		for _, t := range result.tracks {
 			if t.Provider == nil || t.ExternalID == nil {
 				continue
 			}
@@ -128,7 +151,7 @@ func (s *Service) search(ctx context.Context, song map[string]any, input SearchI
 			}
 			seen[key] = true
 			candidate := Candidate{ID: uuid(), Track: t, Score: score(song, t)}
-			_, err = s.exec(ctx, s.db, "meta-insertCandidate", map[string]any{"id": candidate.ID, "songId": song["id"], "fingerprint": fingerprint(song), "track": encode(t), "score": candidate.Score, "now": now()})
+			_, err := s.exec(ctx, s.db, "meta-insertCandidate", map[string]any{"id": candidate.ID, "songId": song["id"], "fingerprint": fingerprint(song), "track": encode(t), "score": candidate.Score, "now": now()})
 			if err != nil {
 				return out, err
 			}
@@ -140,6 +163,9 @@ func (s *Service) search(ctx context.Context, song map[string]any, input SearchI
 		unique[p] = true
 	}
 	if len(out.Errors) == len(unique) {
+		if len(out.Errors) == 1 {
+			return out, &problem{503, out.Errors[0].Message}
+		}
 		return out, &problem{503, "所选平台均暂时不可用，请稍后重试或更换平台"}
 	}
 	sort.Slice(out.Candidates, func(i, j int) bool {

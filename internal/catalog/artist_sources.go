@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/jsondata"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"io"
 	"net"
@@ -28,8 +29,24 @@ type ArtworkChoice struct {
 
 var sourceGate struct {
 	sync.Mutex
-	next map[string]time.Time
+	next    map[string]time.Time
+	permits map[string]chan struct{}
 }
+var sourceCache struct {
+	sync.Mutex
+	client  *http.Client
+	queries *querycache.Cache
+}
+
+func sourceQueries(api *http.Client) *querycache.Cache {
+	sourceCache.Lock()
+	defer sourceCache.Unlock()
+	if sourceCache.client != api {
+		sourceCache.client, sourceCache.queries = api, &querycache.Cache{}
+	}
+	return sourceCache.queries
+}
+
 var sourceClient = &http.Client{Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 3 * time.Second, IdleConnTimeout: 90 * time.Second, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, e := net.SplitHostPort(address)
 	if e != nil {
@@ -63,12 +80,57 @@ func sourceJSON(ctx context.Context, address, host, key string) (map[string]any,
 	if e != nil || u.Scheme != "https" || u.Hostname() != host || u.Port() != "" || u.User != nil {
 		return nil, errors.New("invalid source address")
 	}
+	api := sourceClient
+	return querycache.Load(ctx, sourceQueries(api), querycache.Key("json", address, key), func(ctx context.Context) (map[string]any, time.Duration, error) {
+		root, err := fetchSourceJSON(ctx, api, address, host, key)
+		ttl := 24 * time.Hour
+		empty := len(root) == 0
+		switch host {
+		case "search.kuwo.cn":
+			empty = len(list(root["abslist"])) == 0
+		case "www.theaudiodb.com", "musicbrainz.org":
+			empty = len(list(root["artists"])) == 0 && len(list(root["recordings"])) == 0
+		case "webservice.fanart.tv":
+			empty = len(list(root["artistbackground"])) == 0
+		}
+		if empty {
+			ttl = 5 * time.Minute
+		}
+		return root, ttl, err
+	})
+}
+
+func fetchSourceJSON(ctx context.Context, api *http.Client, address, host, key string) (map[string]any, error) {
+	// Queue per host. Holding one global mutex during network I/O used to make
+	// MusicBrainz, Kuwo, TheAudioDB and fanart block one another.
 	sourceGate.Lock()
-	defer sourceGate.Unlock()
 	if sourceGate.next == nil {
 		sourceGate.next = map[string]time.Time{}
 	}
-	if d := time.Until(sourceGate.next[host]); d > 0 {
+	if sourceGate.permits == nil {
+		sourceGate.permits = map[string]chan struct{}{}
+	}
+	permit := sourceGate.permits[host]
+	if permit == nil {
+		permit = make(chan struct{}, 1)
+		sourceGate.permits[host] = permit
+	}
+	sourceGate.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	select {
+	case permit <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-permit }()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sourceGate.Lock()
+	d := time.Until(sourceGate.next[host])
+	sourceGate.Unlock()
+	if d > 0 {
 		timer := time.NewTimer(d)
 		defer timer.Stop()
 		select {
@@ -81,25 +143,22 @@ func sourceJSON(ctx context.Context, address, host, key string) (map[string]any,
 	if host == "musicbrainz.org" {
 		delay = 1100 * time.Millisecond
 	}
+	sourceGate.Lock()
 	sourceGate.next[host] = time.Now().Add(delay)
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	sourceGate.Unlock()
 	r, e := http.NewRequestWithContext(ctx, "GET", address, nil)
 	if e != nil {
 		return nil, e
 	}
 	r.Header.Set("Accept", "application/json")
 	r.Header.Set("User-Agent", "SingVerse/0.1 (https://github.com/mynora-dot/SingVerse)")
-	if host == "api.qishui.com" {
-		r.Header.Set("User-Agent", "Luna/19.1.0 Android")
-	}
 	if host == "search.kuwo.cn" {
 		r.Header.Set("Referer", "https://www.kuwo.cn/")
 	}
 	if key != "" {
 		r.Header.Set("client-key", key)
 	}
-	resp, e := sourceClient.Do(r)
+	resp, e := api.Do(r)
 	if e != nil {
 		return nil, e
 	}
@@ -130,6 +189,12 @@ func sourceJSON(ctx context.Context, address, host, key string) (map[string]any,
 	var extra any
 	if dec.Decode(&extra) != io.EOF {
 		return nil, errors.New("invalid artwork source data")
+	}
+	if host == "search.kuwo.cn" && root["TOTAL"] == nil {
+		return nil, errors.New("invalid kuwo artwork source data")
+	}
+	if root["error"] != nil {
+		return nil, errors.New("artwork source rejected request")
 	}
 	return root, nil
 }
@@ -274,6 +339,14 @@ func downloadArtwork(ctx context.Context, address string) ([]byte, error) {
 	if u.Scheme != "https" || u.User != nil || u.Port() != "" || !allowed {
 		return nil, errors.New("invalid artwork address")
 	}
+	api := sourceClient
+	return querycache.Load(ctx, sourceQueries(api), querycache.Key("image", address), func(ctx context.Context) ([]byte, time.Duration, error) {
+		data, err := fetchArtwork(ctx, api, address)
+		return data, 24 * time.Hour, err
+	})
+}
+
+func fetchArtwork(ctx context.Context, api *http.Client, address string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, e := http.NewRequestWithContext(ctx, "GET", address, nil)
@@ -284,7 +357,7 @@ func downloadArtwork(ctx context.Context, address string) ([]byte, error) {
 	// explicitly while keeping the same public-host and image validation limits.
 	req.Header.Set("User-Agent", "SingVerse/0.1 (+https://github.com/mynora-dot/SingVerse)")
 	req.Header.Set("Accept", "image/jpeg,image/png")
-	response, e := sourceClient.Do(req)
+	response, e := api.Do(req)
 	if e != nil {
 		return nil, e
 	}

@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/jsondata"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/qishui"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 )
 
 type providerGuard struct {
@@ -31,6 +33,9 @@ type musicProvider struct {
 
 func guarded[T any](ctx context.Context, s *Service, name string, action func(context.Context) (T, error)) (T, error) {
 	var zero T
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
 	guard := s.guards[name]
 	if guard == nil {
 		return zero, &problem{503, "平台暂时不可用"}
@@ -40,9 +45,15 @@ func guarded[T any](ctx context.Context, s *Service, name string, action func(co
 	select {
 	case guard.permit <- struct{}{}:
 	case <-waitCtx.Done():
+		if err := ctx.Err(); err != nil {
+			return zero, err
+		}
 		return zero, &problem{503, "平台繁忙，请稍后重试"}
 	}
 	defer func() { <-guard.permit }()
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
 	if time.Now().Before(guard.cooldown) {
 		return zero, &problem{429, "平台限流冷却中，请一分钟后重试"}
 	}
@@ -62,8 +73,12 @@ func guarded[T any](ctx context.Context, s *Service, name string, action func(co
 	if !contains(cfg.Providers, name) {
 		return zero, conflict("平台已停用")
 	}
-	guard.next = time.Now().Add(1500 * time.Millisecond)
-	callCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+	interval, timeout := 1500*time.Millisecond, 5*time.Second
+	if name == "QISHUI" {
+		interval, timeout = 2*time.Second, qishui.SearchTimeout
+	}
+	guard.next = time.Now().Add(interval)
+	callCtx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 	result, e := action(callCtx)
 	if code(e) == 429 {
@@ -72,10 +87,29 @@ func guarded[T any](ctx context.Context, s *Service, name string, action func(co
 	return result, e
 }
 func (s *Service) callProvider(ctx context.Context, name string, p Provider, keyword string) ([]Track, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if p == nil {
 		return nil, &problem{503, "平台暂时不可用"}
 	}
-	return guarded(ctx, s, name, func(callCtx context.Context) ([]Track, error) { return p.Search(callCtx, keyword, 8) })
+	// Validate current availability even on a cache hit. Cache catalogue tracks,
+	// never persisted candidate IDs or scores tied to a particular local song.
+	cfg, err := s.settings(ctx, s.db, true)
+	if err != nil {
+		return nil, err
+	}
+	if !contains(cfg.Providers, name) {
+		return nil, conflict("平台已停用")
+	}
+	return querycache.Load(ctx, &s.queryCache, querycache.Key("tracks", name, keyword, "8"), func(ctx context.Context) ([]Track, time.Duration, error) {
+		tracks, err := guarded(ctx, s, name, func(callCtx context.Context) ([]Track, error) { return p.Search(callCtx, keyword, 8) })
+		ttl := 15 * time.Minute
+		if len(tracks) == 0 {
+			ttl = time.Minute
+		}
+		return tracks, ttl, err
+	})
 }
 
 func eapi(path, body string) string {
@@ -94,7 +128,7 @@ func eapi(path, body string) string {
 }
 func (p *musicProvider) request(ctx context.Context, method, target string, form url.Values, headers map[string]string) (map[string]any, error) {
 	u, e := url.Parse(target)
-	allowed := map[string][]string{"NETEASE": {"interfacepc.music.163.com", "music.163.com"}, "QQ": {"c.y.qq.com"}, "KUGOU": {"gateway.kugou.com", "songsearch.kugou.com"}, "KUWO": {"search.kuwo.cn"}, "QISHUI": {"api.qishui.com"}}
+	allowed := map[string][]string{"NETEASE": {"interfacepc.music.163.com", "music.163.com"}, "QQ": {"c.y.qq.com"}, "KUGOU": {"gateway.kugou.com", "songsearch.kugou.com"}, "KUWO": {"search.kuwo.cn"}, "MIGU": {"app.c.nf.migu.cn"}}
 	if e != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || !contains(allowed[p.name], u.Hostname()) {
 		return nil, bad("平台请求地址无效")
 	}
@@ -188,6 +222,8 @@ func (p *musicProvider) Search(ctx context.Context, keyword string, limit int) (
 		return p.searchKuwo(ctx, keyword, limit)
 	case "QISHUI":
 		return p.searchQishui(ctx, keyword, limit)
+	case "MIGU":
+		return p.searchMigu(ctx, keyword, limit)
 	}
 	return nil, bad("平台无效")
 }
@@ -425,7 +461,8 @@ func parseKugou(songs []any, limit int) []Track {
 		if len(artists) == 0 {
 			artists = splitArtists(first(m, "singername", "author_name", "singer_name", "SingerName"))
 		}
-		cover := first(m, "sizable_cover", "album_sizable_cover", "img", "Image", "AlbumImage")
+		// Prefer an explicit album image: the generic Image can be a portrait.
+		cover := first(m, "album_sizable_cover", "AlbumImage", "sizable_cover", "img", "Image")
 		if cover != nil {
 			cover = ptr(strings.ReplaceAll(*cover, "{size}", "0"))
 		}

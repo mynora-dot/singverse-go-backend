@@ -6,15 +6,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 func (c *publicCatalog) Search(ctx context.Context, platform, query string, page int) (CatalogPage, error) {
+	return querycache.Load(ctx, &c.queryCache, querycache.Key("search", platform, query, strconv.Itoa(page)), func(ctx context.Context) (CatalogPage, time.Duration, error) {
+		out, err := c.search(ctx, platform, query, page)
+		ttl := 10 * time.Minute
+		if len(out.Tracks) == 0 {
+			ttl = time.Minute
+		}
+		return out, ttl, err
+	})
+}
+
+func (c *publicCatalog) search(ctx context.Context, platform, query string, page int) (CatalogPage, error) {
 	if platforms[platform] == "" || strings.TrimSpace(query) == "" || search.UTF16Length(query) > 100 || page < 1 || page > 100 {
 		return CatalogPage{}, bad("请输入 1–100 个字的歌名或歌手，页码最多 100")
 	}
@@ -23,6 +36,8 @@ func (c *publicCatalog) Search(ctx context.Context, platform, query string, page
 	var total int64
 	var e error
 	switch platform {
+	case "qs":
+		return c.searchQishui(ctx, query, page)
 	case "wy":
 		body := url.Values{"s": {query}, "type": {"1"}, "limit": {"20"}, "offset": {strconv.Itoa((page - 1) * 20)}}
 		root, e = c.send(ctx, "https://music.163.com/api/search/get/web", platform, "POST", map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, []byte(body.Encode()))
@@ -82,14 +97,14 @@ func catalogPlatform(address string) (string, error) {
 		return "", bad("请使用音乐平台的公开分享链接")
 	}
 	host := strings.ToLower(u.Hostname())
-	for p, domains := range map[string][]string{"wy": {"music.163.com", "163cn.tv"}, "tx": {"y.qq.com", "qqmusic.qq.com", "qm.qq.com"}, "kg": {"kugou.com"}, "kw": {"kuwo.cn"}, "mg": {"migu.cn"}} {
+	for p, domains := range map[string][]string{"wy": {"music.163.com", "163cn.tv"}, "tx": {"y.qq.com", "qqmusic.qq.com", "qm.qq.com"}, "kg": {"kugou.com"}, "kw": {"kuwo.cn"}, "mg": {"migu.cn"}, "qs": {"qishui.com", "qishui.douyin.com", "qishui.share.douyin.com"}} {
 		for _, d := range domains {
 			if host == d || strings.HasSuffix(host, "."+d) {
 				return p, nil
 			}
 		}
 	}
-	return "", bad("目前支持网易云、QQ、酷狗、酷我和咪咕的歌单或专辑链接")
+	return "", bad("目前支持网易云、QQ、酷狗、酷我、咪咕的歌单或专辑，以及汽水的公开歌单链接")
 }
 
 var refPath = regexp.MustCompile(`(?i)(?:album(?:_?detail)?|playlist(?:_?detail)?|playsquare|songlist|special/single|playlist/index)/(?:detail/|info/)?([A-Za-z0-9_]+)(?:\.html|/|$)`)
@@ -116,21 +131,21 @@ func parseCatalogReference(address, platform string) *CatalogReference {
 		}
 	}
 	if kind == "" {
-		for _, k := range []string{"global_collection_id", "gcid", "disstid"} {
+		for _, k := range []string{"playlist_id", "global_collection_id", "gcid", "disstid"} {
 			if q.Has(k) {
 				kind = "playlist"
 			}
 		}
-		if kind == "" && (q.Has("albumId") || q.Has("albummid")) {
+		if kind == "" && (q.Has("album_id") || q.Has("albumId") || q.Has("albummid")) {
 			kind = "album"
 		}
 	}
 	if kind == "" {
 		return nil
 	}
-	keys := []string{"global_collection_id", "gcid", "specialid", "disstid", "playlistId", "pid", "id"}
+	keys := []string{"global_collection_id", "gcid", "specialid", "disstid", "playlist_id", "playlistId", "pid", "id"}
 	if kind == "album" {
-		keys = []string{"albumId", "albumid", "albummid", "id"}
+		keys = []string{"album_id", "albumId", "albumid", "albummid", "id"}
 	}
 	id := ""
 	for _, key := range keys {
@@ -157,6 +172,13 @@ func parseCatalogReference(address, platform string) *CatalogReference {
 	return &CatalogReference{platform, kind, id}
 }
 func (c *publicCatalog) Reference(ctx context.Context, input string) (CatalogReference, error) {
+	return querycache.Load(ctx, &c.queryCache, querycache.Key("reference", input), func(ctx context.Context) (CatalogReference, time.Duration, error) {
+		out, err := c.reference(ctx, input)
+		return out, 24 * time.Hour, err
+	})
+}
+
+func (c *publicCatalog) reference(ctx context.Context, input string) (CatalogReference, error) {
 	if len(input) > 4096 {
 		return CatalogReference{}, bad("请粘贴歌单或专辑的分享链接")
 	}
@@ -211,11 +233,20 @@ func (c *publicCatalog) Reference(ctx context.Context, input string) (CatalogRef
 	return CatalogReference{}, bad("未识别到歌单或专辑，请检查链接是否公开，或复制完整分享链接")
 }
 func (c *publicCatalog) Detail(ctx context.Context, track Track) (Track, error) {
+	return querycache.Load(ctx, &c.queryCache, querycache.Key("detail", track.Platform, track.RemoteID), func(ctx context.Context) (Track, time.Duration, error) {
+		out, err := c.detail(ctx, track)
+		return out, 6 * time.Hour, err
+	})
+}
+
+func (c *publicCatalog) detail(ctx context.Context, track Track) (Track, error) {
 	p, id := track.Platform, track.RemoteID
 	var root map[string]any
 	var rows any
 	var e error
 	switch p {
+	case "qs":
+		return c.qishuiDetail(ctx, track)
 	case "wy":
 		if !catalogDigits.MatchString(id) {
 			return Track{}, bad("歌曲编号无效")
@@ -254,10 +285,23 @@ func (c *publicCatalog) Detail(ctx context.Context, track Track) (Track, error) 
 	return detailed, nil
 }
 func (c *publicCatalog) Lyrics(ctx context.Context, track Track) (string, error) {
+	return querycache.Load(ctx, &c.queryCache, querycache.Key("lyrics", encode(track)), func(ctx context.Context) (string, time.Duration, error) {
+		out, err := c.lyrics(ctx, track)
+		ttl := 24 * time.Hour
+		if out == "" {
+			ttl = time.Minute
+		}
+		return out, ttl, err
+	})
+}
+
+func (c *publicCatalog) lyrics(ctx context.Context, track Track) (string, error) {
 	p, id := track.Platform, track.RemoteID
 	var root map[string]any
 	var e error
 	switch p {
+	case "qs":
+		return c.qishuiLyrics(ctx, track)
 	case "wy":
 		root, e = c.get(ctx, catalogURL("https://music.163.com/api/song/lyric", "id", id, "lv", 1, "kv", 1, "tv", -1), p)
 		return valueText(at(root, "lrc", "lyric")), e

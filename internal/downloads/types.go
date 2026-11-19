@@ -17,8 +17,8 @@ import (
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
 
-var platforms = map[string]string{"wy": "网易云音乐", "tx": "QQ 音乐", "kg": "酷狗音乐", "kw": "酷我音乐", "mg": "咪咕音乐"}
-var qualities = []string{"flac24bit", "flac", "320k", "128k"}
+var platforms = map[string]string{"wy": "网易云音乐", "tx": "QQ 音乐", "kg": "酷狗音乐", "kw": "酷我音乐", "mg": "咪咕音乐", "qs": "汽水音乐"}
+var qualities = []string{"flac24bit", "flac", "320k", "256k", "128k", "64k", "32k"}
 
 const sourcePurpose = "singverse:lx-source:v1"
 const maxScript = 9_000_000

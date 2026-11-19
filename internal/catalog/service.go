@@ -17,6 +17,7 @@ import (
 	"github.com/mynora-dot/singverse-go-backend/internal/metadata"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/config"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/httpx"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/qishui"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"log/slog"
@@ -59,9 +60,14 @@ type Service struct {
 	artworkBuilt       time.Time
 	artworkFingerprint string
 	pathChanged        func(context.Context, store.DBTX, string, string) error
+	qishui             *qishui.Client
 }
 
-func New(db *sqlx.DB, dialect string, cfg config.Config, lib Library, models *ai.Service, cipher ai.Cipher, devices Invalidator, log *slog.Logger) (*Service, error) {
+type Option func(*Service)
+
+func WithQishuiClient(client *qishui.Client) Option { return func(s *Service) { s.qishui = client } }
+
+func New(db *sqlx.DB, dialect string, cfg config.Config, lib Library, models *ai.Service, cipher ai.Cipher, devices Invalidator, log *slog.Logger, options ...Option) (*Service, error) {
 	q, e := store.ReadQueries(files, "sql")
 	if e != nil {
 		return nil, e
@@ -70,6 +76,15 @@ func New(db *sqlx.DB, dialect string, cfg config.Config, lib Library, models *ai
 		log = slog.Default()
 	}
 	s := &Service{db: db, q: q, library: lib, ai: models, cipher: cipher, devices: devices, log: log, done: make(chan struct{})}
+	for _, option := range options {
+		option(s)
+	}
+	if s.qishui == nil {
+		s.qishui, e = qishui.New(sourceClient)
+		if e != nil {
+			return nil, e
+		}
+	}
 	if e = s.recover(context.Background()); e != nil {
 		return nil, e
 	}
@@ -87,6 +102,9 @@ func (s *Service) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 		<-s.done
+	}
+	if s.qishui != nil {
+		s.qishui.Close()
 	}
 	return nil
 }

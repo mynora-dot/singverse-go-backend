@@ -5,18 +5,30 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (c *publicCatalog) Collection(ctx context.Context, ref CatalogReference, page int) (Collection, error) {
+	return querycache.Load(ctx, &c.queryCache, querycache.Key("collection", ref.Platform, ref.Kind, ref.ID, strconv.Itoa(page)), func(ctx context.Context) (Collection, time.Duration, error) {
+		out, err := c.collection(ctx, ref, page)
+		return out, 5 * time.Minute, err
+	})
+}
+
+func (c *publicCatalog) collection(ctx context.Context, ref CatalogReference, page int) (Collection, error) {
 	if page < 1 || page > 500 {
 		return Collection{}, bad("每次最多读取 10000 首歌曲，请拆分后导入")
 	}
-	if platforms[ref.Platform] == "" || !contains([]string{"album", "playlist"}, ref.Kind) || parseCatalogReference("https://"+map[string]string{"wy": "music.163.com", "tx": "y.qq.com", "kg": "kugou.com", "kw": "kuwo.cn", "mg": "migu.cn"}[ref.Platform]+"/"+ref.Kind+"?id="+ref.ID, ref.Platform) == nil {
+	if platforms[ref.Platform] == "" || !contains([]string{"album", "playlist"}, ref.Kind) || parseCatalogReference("https://"+map[string]string{"wy": "music.163.com", "tx": "y.qq.com", "kg": "kugou.com", "kw": "kuwo.cn", "mg": "migu.cn", "qs": "qishui.com"}[ref.Platform]+"/"+ref.Kind+"?id="+ref.ID, ref.Platform) == nil {
 		return Collection{}, bad("目录编号无效")
+	}
+	if ref.Platform == "qs" {
+		return c.qishuiCollection(ctx, ref, page)
 	}
 	p, id := ref.Platform, ref.ID
 	album := ref.Kind == "album"

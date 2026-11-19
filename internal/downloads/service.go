@@ -350,19 +350,29 @@ func (s *Service) Inspect(ctx context.Context, id string, activate bool) (map[st
 	if e != nil {
 		return nil, e
 	}
-	if activate {
-		e = s.transaction(ctx, func(tx store.DBTX) error {
-			if e := s.lock(ctx, tx); e != nil {
-				return e
-			}
-			if _, e := s.script(ctx, tx, id); e != nil {
-				return e
-			}
+	e = s.transaction(ctx, func(tx store.DBTX) error {
+		if e := s.lock(ctx, tx); e != nil {
+			return e
+		}
+		if _, e := s.script(ctx, tx, id); e != nil {
+			return e
+		}
+		if _, e := s.exec(ctx, tx, "refreshCapabilities", map[string]any{"id": id, "capabilities": encode(cap)}); e != nil {
+			return e
+		}
+		if activate {
 			_, e := s.exec(ctx, tx, "activate", map[string]any{"id": id})
 			return e
-		})
-		return map[string]any{"id": id, "capabilities": cap}, e
+		}
+		return nil
+	})
+	if e != nil {
+		return nil, e
 	}
+	if activate {
+		return map[string]any{"id": id, "capabilities": cap}, nil
+	}
+
 	return map[string]any{"capabilities": cap, "message": "音源初始化成功，实际歌曲可用性以下载结果为准"}, nil
 }
 func (s *Service) DeleteScript(ctx context.Context, id string) error {

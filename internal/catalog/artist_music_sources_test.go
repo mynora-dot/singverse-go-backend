@@ -3,16 +3,19 @@ package catalog
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/png"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mynora-dot/singverse-go-backend/internal/metadata"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/qishui"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/testutil"
 )
 
@@ -30,11 +33,17 @@ func musicArtworkClient(t *testing.T, provider, name, title string, failure bool
 			} else {
 				body = fmt.Sprintf(`{'TOTAL':'1','abslist':[{'SONGNAME':'%s','ARTISTID':'947','PICPATH':'album.jpg'}]}`, title)
 			}
-		} else if provider == "QISHUI" && r.URL.Hostname() == "api.qishui.com" {
-			if r.URL.Path == "/luna/search/artist" {
-				body = fmt.Sprintf(`{"result_groups":[{"data":[{"entity":{"artist":{"id":6807264292040083458,"name":"%s","url_avatar":{"uri":"tos-cn-v-2774c002/portrait","urls":["https://p3-luna.douyinpic.com/img/"],"template_prefix":"tplv-b829550vbb"}}}},{"entity":{"artist":{"id":"7288900311811754021","name":"%s","url_avatar":{"uri":"tos-cn-v-2774c002/other","urls":["https://p6-luna.douyinpic.com/img/"],"template_prefix":"tplv-b829550vbb"}}}}]}]}`, name, name)
-			} else if r.URL.Path == "/luna/search/track" {
-				body = fmt.Sprintf(`{"result_groups":[{"data":[{"entity":{"track":{"name":"%s","artists":[{"id":6807264292040083458,"name":"%s"}],"album":{"cover":"https://p3-luna.douyinpic.com/album.jpg"}}}}]}]}`, title, name)
+		} else if provider == "QISHUI" && r.URL.Hostname() == "open.qishui.com" {
+			body = `{"client_token":"anonymous-token"}`
+		} else if provider == "QISHUI" && r.URL.Hostname() == "open.douyin.com" {
+			var query map[string]any
+			if json.NewDecoder(r.Body).Decode(&query) != nil {
+				t.Fatal("invalid car search body")
+			}
+			if query["search_type"] == "artist" {
+				body = fmt.Sprintf(`{"data":{"result_groups":[{"id":"artists","data":[{"entity":{"artist":{"base_info":{"id":6807264292040083458,"name":"%s","url_avatar":{"uri":"tos-cn-v-2774c002/portrait","urls":["https://p3-luna.douyinpic.com/img/"],"template_prefix":"tplv-b829550vbb"}}}}},{"entity":{"artist":{"base_info":{"id":"7288900311811754021","name":"%s","url_avatar":{"uri":"tos-cn-v-2774c002/other","urls":["https://p6-luna.douyinpic.com/img/"],"template_prefix":"tplv-b829550vbb"}}}}}]}]}}`, name, name)
+			} else if query["search_type"] == "track" {
+				body = fmt.Sprintf(`{"data":{"result_groups":[{"id":"tracks","data":[{"entity":{"track":{"base_info":{"name":"%s"},"related_info":{"artist_links":[{"id":6807264292040083458,"name":"%s"}],"album_link":{"cover":"https://p3-luna.douyinpic.com/album.jpg"}}}}}]}]}}`, title, name)
 			} else {
 				t.Fatal("unexpected qishui endpoint", r.URL)
 			}
@@ -43,13 +52,56 @@ func musicArtworkClient(t *testing.T, provider, name, title string, failure bool
 		} else {
 			t.Fatal("explicit platform fell back or requested an album image", r.URL)
 		}
-		// sourceJSON holds this gate for the entire API request; remove test delays.
-		sourceGate.next[r.URL.Hostname()] = time.Time{}
+		// Keep this fixture fast while retaining the real per-host request gate.
+		if provider == "KUWO" {
+			sourceGate.Lock()
+			sourceGate.next[r.URL.Hostname()] = time.Time{}
+			sourceGate.Unlock()
+		}
 		if failure {
-			body = `{"status_code":403,"message":"login required"}`
+			body = `{"err_no":28001003,"status_code":403,"message":"login required"}`
 		}
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}
+}
+
+func qishuiArtworkClient(t *testing.T, api *http.Client) *qishui.Client {
+	t.Helper()
+	client, err := qishui.New(api)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Close() })
+	return client
+}
+
+func TestQishuiArtistAndSongUseTheSharedAnonymousToken(t *testing.T) {
+	api := musicArtworkClient(t, "QISHUI", "Artist", "Song", false)
+	transport := api.Transport
+	tokens := 0
+	api.Transport = artworkTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Hostname() == "open.qishui.com" {
+			tokens++
+		}
+		return transport.RoundTrip(r)
+	})
+	s := &Service{qishui: qishuiArtworkClient(t, api)}
+	choices, err := s.findMusicArtwork(context.Background(), "QISHUI", "Artist", []string{"Song"}, nil)
+	if err != nil || len(choices) != 1 || !choices[0].Verified || choices[0].ExternalID != "6807264292040083458" || tokens != 1 {
+		t.Fatal("anonymous artist verification failed", choices, tokens, err)
+	}
+}
+
+func TestLiveQishuiArtistSearch(t *testing.T) {
+	if os.Getenv("SINGVERSE_QISHUI_LIVE_TEST") != "1" {
+		t.Skip("set SINGVERSE_QISHUI_LIVE_TEST=1 to query the public catalogue")
+	}
+	s := &Service{qishui: qishuiArtworkClient(t, nil)}
+	choices, err := s.findMusicArtwork(context.Background(), "QISHUI", "郭沁", []string{"传奇"}, nil)
+	if err != nil || len(choices) != 1 || !choices[0].Verified || choices[0].ExternalID != "6935546743946041346" || choices[0].Portrait == "" {
+		t.Fatal("live artist identity verification failed", choices, err)
+	}
+	t.Logf("artist=郭沁 id=%s verified=%v portrait=%v", choices[0].ExternalID, choices[0].Verified, choices[0].Portrait != "")
 }
 
 func TestMusicArtistArtworkRequiresIdentity(t *testing.T) {
@@ -67,7 +119,8 @@ func TestMusicArtistArtworkRequiresIdentity(t *testing.T) {
 				if mode == "wrong name" {
 					name = "Someone else"
 				}
-				chosen, address, data, review, err := (&Service{}).lookupArtwork(context.Background(), name, []string{"Song"}, refs, "PORTRAIT", provider)
+				s := &Service{qishui: qishuiArtworkClient(t, sourceClient)}
+				chosen, address, data, review, err := s.lookupArtwork(context.Background(), name, []string{"Song"}, refs, "PORTRAIT", provider)
 				if mode == "source failure" {
 					if err == nil || data != nil {
 						t.Fatal("upstream failure became no-match or success", chosen, err)
@@ -139,6 +192,7 @@ func testPublicArtistArtworkBatch(t *testing.T, provider string, mysql bool) {
 	prior := sourceClient
 	t.Cleanup(func() { sourceClient = prior })
 	sourceClient = musicArtworkClient(t, provider, "周杰伦", "Different song", false)
+	s.qishui = qishuiArtworkClient(t, sourceClient)
 	ctx := context.Background()
 	platforms := request(t, r, "GET", "/api/v1/artists/artwork-platforms", nil, 200)
 	if !strings.Contains(encode(platforms), provider) {

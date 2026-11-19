@@ -9,12 +9,14 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"golang.org/x/text/unicode/norm"
 	"math/big"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -73,6 +75,18 @@ func (s *Service) ArtistArtworkFrom(ctx context.Context, name string, titles []s
 	if !cfg.Enabled {
 		return nil, nil
 	}
+	key := querycache.Key("artist-artwork", name, encode(titles), encode(refs), selected, encode(cfg.Providers))
+	return querycache.Load(ctx, &s.queryCache, key, func(ctx context.Context) (*Artwork, time.Duration, error) {
+		art, err := s.lookupArtistArtwork(ctx, name, titles, refs, selected, cfg)
+		ttl := 6 * time.Hour
+		if art == nil {
+			ttl = 5 * time.Minute
+		}
+		return art, ttl, err
+	})
+}
+
+func (s *Service) lookupArtistArtwork(ctx context.Context, name string, titles []string, refs []ArtistRef, selected string, cfg Settings) (*Artwork, error) {
 	var failure error
 	for _, provider := range []string{"NETEASE", "QQ", "KUGOU"} {
 		if !contains(cfg.Providers, provider) || selected != "AUTO" && provider != selected {

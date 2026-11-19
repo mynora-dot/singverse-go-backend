@@ -47,7 +47,15 @@ def main():
             source = source.resolve(strict=True)
             destination = stage / platform
             destination.mkdir()
-            names = ("singverse-" + platform + ".apk", "release.json", "SHA256SUMS")
+            manifest_file = source / "release.json"
+            info = manifest_file.lstat()
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 65536:
+                raise ValueError("Invalid local release manifest: " + platform)
+            metadata = json.loads(manifest_file.read_text())
+            if not isinstance(metadata, dict) or not isinstance(metadata.get("versionName"), str):
+                raise ValueError("Invalid local release manifest: " + platform)
+            packages = tools.manifest_packages(metadata, metadata["versionName"], platform)
+            names = [name for name, _ in packages] + ["release.json", "SHA256SUMS"]
             for name in names:
                 path = source / name
                 info = path.lstat()
@@ -55,19 +63,17 @@ def main():
                 if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= maximum:
                     raise ValueError("Invalid local release file: " + str(path))
                 shutil.copyfile(path, destination / name)
-            records = {name: {"sha256": checksum(destination / name)} for name in names[:2]}
+            records = {name: {"sha256": checksum(destination / name)} for name in names[:-1]}
             tools.verify_checksums(destination / "SHA256SUMS", records)
-            metadata = json.loads((destination / "release.json").read_text())
-            if not isinstance(metadata, dict) or not isinstance(metadata.get("versionName"), str):
-                raise ValueError("Invalid local release manifest: " + platform)
-            metadata = tools.verify_apk(destination, platform, {"tag_name": "v" + metadata["versionName"]},
-                                        args.apksigner, args.aapt)
+            for filename, item in packages:
+                tools.verify_apk(destination, platform, {"tag_name": "v" + metadata["versionName"]},
+                                 args.apksigner, args.aapt, filename, item)
             metadata["notes"] = LOCAL_NOTE + ("\n\n" + metadata["notes"] if metadata["notes"] else "")
             if len(metadata["notes"].encode("utf-8")) > 16000:
                 raise ValueError("Local release notes exceed 16000 bytes")
             (destination / "release.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
             (destination / "SHA256SUMS").write_text("".join(
-                checksum(destination / name) + "  " + name + "\n" for name in names[:2]))
+                checksum(destination / name) + "  " + name + "\n" for name in names[:-1]))
             print("已校验本地联调包：" + platform + " " + metadata["versionName"])
         if OUTPUT.is_symlink():
             raise ValueError("Local release output must not be a symlink")

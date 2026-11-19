@@ -17,6 +17,7 @@ import (
 const remoteCoverLimit = metastandard.ImageLimit
 
 var kugouCoverSize = regexp.MustCompile(`(/(?:stdmusic|albumcover)/)([0-9]+|\{size\})(/)`)
+var kugouPortraitSize = regexp.MustCompile(`(/uploadpic/(?:pass/)?softhead/)([0-9]+|\{size\})(/)`)
 var kuwoCoverSize = regexp.MustCompile(`(/star/albumcover/)[0-9]+(/)`)
 var qqCoverSize = regexp.MustCompile(`T002(?:R[0-9]+x[0-9]+)?M000`)
 var qishuiCoverSize = regexp.MustCompile(`-(?:image\.image|resize:[0-9]+:[0-9]+\.(?:png|jpg))$`)
@@ -51,6 +52,11 @@ func coverVariant(provider, raw *string, quality string) *string {
 			size = "2048"
 		}
 		u.Path = kugouCoverSize.ReplaceAllString(u.Path, "${1}"+size+"${3}")
+		// Search sometimes supplies a portrait as the song's Image. Unlike
+		// stdmusic, softhead/0 returns a tiny default (52 px in a verified
+		// response), not the original. Keep the same picture, using its large
+		// CDN version for both choices; never enlarge those tiny bytes locally.
+		u.Path = kugouPortraitSize.ReplaceAllString(u.Path, "${1}2048${3}")
 	case "KUWO":
 		size := "0"
 		if high {
@@ -79,8 +85,8 @@ func validateRemoteCover(b []byte) (Cover, error) {
 		return Cover{}, &problem{422, "平台图片超过单次读取容量，请选择高清版本或其他封面"}
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(b))
-	if err != nil || !contains([]string{"jpeg", "png"}, format) || cfg.Width < 1 || cfg.Height < 1 {
-		return Cover{}, &problem{422, "平台返回的内容不是可用的 JPEG 或 PNG 图片"}
+	if err != nil || !contains([]string{"jpeg", "png", "webp"}, format) || cfg.Width < 1 || cfg.Height < 1 {
+		return Cover{}, &problem{422, "平台返回的内容不是可用的 JPEG、PNG 或 WebP 图片"}
 	}
 	if int64(cfg.Width)*int64(cfg.Height) > metastandard.MaxImagePixels {
 		return Cover{}, &problem{422, "平台原图超过可保存的像素范围，请选择高清版本或其他封面"}

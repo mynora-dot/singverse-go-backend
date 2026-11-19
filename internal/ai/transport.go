@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 )
 
 // Endpoint permits HTTPS providers and private HTTP services, with no embedded credentials.
@@ -327,6 +329,18 @@ func (s *Service) Search(ctx context.Context, c Snapshot, query string) ([]Searc
 	if e != nil {
 		return nil, e
 	}
+	cacheKey := querycache.Key("web-search", c.ID, c.Protocol, c.Endpoint, key, query, format(c.MaxResults), format(c.TimeoutSeconds))
+	return querycache.Load(ctx, &s.queryCache, cacheKey, func(ctx context.Context) ([]SearchHit, time.Duration, error) {
+		out, err := s.search(ctx, c, query, key)
+		ttl := 5 * time.Minute
+		if len(out) == 0 {
+			ttl = time.Minute
+		}
+		return out, ttl, err
+	})
+}
+
+func (s *Service) search(ctx context.Context, c Snapshot, query, key string) ([]SearchHit, error) {
 	h := map[string]string{}
 	var body any
 	var params url.Values
@@ -405,4 +419,14 @@ func (s *Service) Search(ctx context.Context, c Snapshot, query string) ([]Searc
 		}
 	}
 	return out, nil
+}
+
+// Explicit connection tests must observe the upstream even when an ordinary
+// assistant query with the same words has a valid cached response.
+func (s *Service) testSearch(ctx context.Context, c Snapshot, query string) ([]SearchHit, error) {
+	key, err := s.Key(c)
+	if err != nil {
+		return nil, err
+	}
+	return s.search(ctx, c, query, key)
 }

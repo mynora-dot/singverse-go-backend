@@ -216,8 +216,9 @@ func (s *Service) download(ctx context.Context, item map[string]any) error {
 	if e != nil {
 		return e
 	}
-	address, chosen := "", ""
-	for _, quality := range available {
+	chosen := ""
+	var file Download
+	for index, quality := range available {
 		if e = ctx.Err(); e != nil {
 			return e
 		}
@@ -233,43 +234,69 @@ func (s *Service) download(ctx context.Context, item map[string]any) error {
 				return s.finish(ctx, tx, id, "SKIPPED", quality, str(asset, "relative_path"), str(asset, "song_id"), str(asset, "content_hash"), "已在曲库，保留已有文件")
 			})
 		}
-		address, e = s.runtime.Resolve(ctx, body, str(script, "environment"), track.Platform, quality, track.MusicInfo)
+		address, resolveErr := s.runtime.Resolve(ctx, body, str(script, "environment"), track.Platform, quality, track.MusicInfo)
+		if resolveErr != nil {
+			if str(item, "requested_quality") == "auto" && errors.Is(resolveErr, lxruntime.ErrQualityUnavailable) && index+1 < len(available) {
+				continue
+			}
+			return resolveErr
+		}
+		reserved, e := s.reserveQuality(ctx, item, quality, root)
+		if e != nil || !reserved {
+			return e
+		}
+		if e = os.Remove(temp); e != nil && !os.IsNotExist(e) {
+			return bad("下载临时文件无法清理")
+		}
+		file, e = s.network.Download(ctx, address, temp, func(received int64, total *int64) error {
+			return s.transaction(ctx, func(tx store.DBTX) error {
+				res, e := s.exec(ctx, tx, "progress", map[string]any{"id": id, "received": received, "total": total, "now": now()})
+				if e != nil {
+					return e
+				}
+				n, e := res.RowsAffected()
+				if e != nil {
+					return e
+				}
+				if n == 0 {
+					return context.Canceled
+				}
+				return s.project(ctx, tx, str(item, "batch_id"))
+			})
+		})
 		if e == nil {
 			chosen = quality
 			break
 		}
-		if str(item, "requested_quality") != "auto" || !errors.Is(e, lxruntime.ErrQualityUnavailable) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if str(item, "requested_quality") != "auto" || !errors.Is(e, lxruntime.ErrQualityUnavailable) || index+1 == len(available) {
 			return e
 		}
-	}
-	if address == "" {
-		return bad("音源未能提供这些音质，请更换音源或歌曲版本")
-	}
-	reserved, e := s.reserveQuality(ctx, item, chosen, root)
-	if e != nil || !reserved {
-		return e
-	}
-	if e = os.Remove(temp); e != nil && !os.IsNotExist(e) {
-		return bad("下载临时文件无法清理")
-	}
-	file, e := s.network.Download(ctx, address, temp, func(received int64, total *int64) error {
-		return s.transaction(ctx, func(tx store.DBTX) error {
-			res, e := s.exec(ctx, tx, "progress", map[string]any{"id": id, "received": received, "total": total, "now": now()})
-			if e != nil {
-				return e
+		// A source may resolve successfully to an unavailable high-quality file.
+		// Release that quality before trying the next one so deduplicated jobs and
+		// cancellation keep using the same state machine as ordinary resolution.
+		e = s.transaction(ctx, func(tx store.DBTX) error {
+			res, err := s.exec(ctx, tx, "nextQuality", map[string]any{"id": id, "message": "当前音质的音频地址不可用，正在尝试下一音质", "now": now()})
+			if err != nil {
+				return err
 			}
-			n, e := res.RowsAffected()
-			if e != nil {
-				return e
+			n, err := res.RowsAffected()
+			if err != nil {
+				return err
 			}
 			if n == 0 {
 				return context.Canceled
 			}
 			return s.project(ctx, tx, str(item, "batch_id"))
 		})
-	})
-	if e != nil {
-		return e
+		if e != nil {
+			return e
+		}
+	}
+	if chosen == "" {
+		return bad("音源未能提供这些音质，请更换音源或歌曲版本")
 	}
 	if e = ctx.Err(); e != nil {
 		return e

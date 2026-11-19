@@ -1,0 +1,1 @@
+UPDATE lx_download_item SET status='RESOLVING',resolved_quality=NULL,resolved_active_key=NULL,received_bytes=0,total_bytes=NULL,message=@{message},updated_at=@{now} WHERE id=@{id} AND status IN ('RESOLVING','DOWNLOADING')

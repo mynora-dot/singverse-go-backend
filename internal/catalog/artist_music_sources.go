@@ -32,7 +32,7 @@ func (s *Service) findMusicArtwork(ctx context.Context, provider, name string, t
 	if provider == "KUWO" {
 		choices, err = kuwoArtistChoices(ctx, name)
 	} else {
-		choices, err = qishuiArtistChoices(ctx, name)
+		choices, err = s.qishuiArtistChoices(ctx, name)
 	}
 	if err != nil || len(choices) == 0 {
 		return choices, err
@@ -49,7 +49,7 @@ func (s *Service) findMusicArtwork(ctx context.Context, provider, name string, t
 			if provider == "KUWO" {
 				ids, err = kuwoSongArtists(ctx, name, title)
 			} else {
-				ids, err = qishuiSongArtists(ctx, name, title)
+				ids, err = s.qishuiSongArtists(ctx, name, title)
 			}
 			if err != nil {
 				return nil, err
@@ -141,16 +141,8 @@ func kuwoSongArtists(ctx context.Context, name, title string) ([]string, error) 
 	return out, nil
 }
 
-func qishuiSearch(ctx context.Context, keyword, kind string) (map[string]any, error) {
-	q := url.Values{"aid": {"386088"}, "app_name": {"luna"}, "region": {"cn"}, "device_platform": {"android"}, "version_name": {"3.0.0"}, "version_code": {"30000000"}, "q": {keyword}, "cursor": {"0"}, "count": {"20"}}
-	root, err := sourceJSON(ctx, "https://api.qishui.com/luna/search/"+kind+"?"+q.Encode(), "api.qishui.com", "")
-	if err != nil {
-		return nil, err
-	}
-	if num(root["status_code"]) != 0 || num(obj(root["status_info"])["code"]) != 0 || root["result_groups"] == nil {
-		return nil, errors.New("qishui artist source unavailable")
-	}
-	return root, nil
+func (s *Service) qishuiSearch(ctx context.Context, keyword, kind string) (map[string]any, error) {
+	return s.qishui.Search(ctx, keyword, kind)
 }
 
 func qishuiPortrait(raw any) string {
@@ -171,8 +163,8 @@ func qishuiPortrait(raw any) string {
 	return ""
 }
 
-func qishuiArtistChoices(ctx context.Context, name string) ([]ArtworkChoice, error) {
-	root, err := qishuiSearch(ctx, name, "artist")
+func (s *Service) qishuiArtistChoices(ctx context.Context, name string) ([]ArtworkChoice, error) {
+	root, err := s.qishuiSearch(ctx, name, "artist")
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +173,9 @@ func qishuiArtistChoices(ctx context.Context, name string) ([]ArtworkChoice, err
 	for _, group := range list(root["result_groups"]) {
 		for _, raw := range list(obj(group)["data"]) {
 			artist := obj(obj(obj(raw)["entity"])["artist"])
+			if base := obj(artist["base_info"]); base != nil {
+				artist = base
+			}
 			id := musicID(artist["id"])
 			portrait := qishuiPortrait(artist["url_avatar"])
 			if canonical(str(artist["name"])) == canonical(name) && musicArtistID.MatchString(id) && !seen[id] && portrait != "" {
@@ -195,8 +190,8 @@ func qishuiArtistChoices(ctx context.Context, name string) ([]ArtworkChoice, err
 	return out, nil
 }
 
-func qishuiSongArtists(ctx context.Context, name, title string) ([]string, error) {
-	root, err := qishuiSearch(ctx, name+" "+title, "track")
+func (s *Service) qishuiSongArtists(ctx context.Context, name, title string) ([]string, error) {
+	root, err := s.qishuiSearch(ctx, name+" "+title, "track")
 	if err != nil {
 		return nil, err
 	}
@@ -204,10 +199,18 @@ func qishuiSongArtists(ctx context.Context, name, title string) ([]string, error
 	for _, group := range list(root["result_groups"]) {
 		for _, raw := range list(obj(group)["data"]) {
 			track := obj(obj(obj(raw)["entity"])["track"])
+			if track == nil {
+				track = obj(obj(obj(obj(raw)["entity"])["track_wrapper"])["track"])
+			}
+			artists := track["artists"]
+			if base := obj(track["base_info"]); base != nil {
+				artists = obj(track["related_info"])["artist_links"]
+				track = base
+			}
 			if canonical(str(track["name"])) != canonical(title) {
 				continue
 			}
-			for _, rawArtist := range list(track["artists"]) {
+			for _, rawArtist := range list(artists) {
 				artist := obj(rawArtist)
 				id := musicID(artist["id"])
 				if canonical(str(artist["name"])) == canonical(name) && musicArtistID.MatchString(id) {
