@@ -16077,6 +16077,54 @@
           }
         },
         "operationId": "audioRoles168Head"
+      },
+      "delete": {
+        "operationId": "deleteAccompaniment",
+        "summary": "Delete an inactive generated accompaniment version",
+        "description": "Deletes only the derived AAC/FLAC file. The implicit or explicitly selected current full AAC is protected. Successful task records and pending compute cleanup remain available. Repeating deletion of an already missing inactive file returns 204. Source media and audio-role decisions are preserved.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "song",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Inactive derived file removed or already missing"
+          },
+          "401": {
+            "description": "Administrator session required"
+          },
+          "403": {
+            "description": "CSRF required"
+          },
+          "404": {
+            "description": "Unknown job or job belongs to another song"
+          },
+          "409": {
+            "description": "Current accompaniment or job not yet successfully completed"
+          },
+          "422": {
+            "description": "Only generated SEPARATE outputs can be deleted"
+          }
+        }
       }
     },
     "/api/v1/tv/audio-roles/songs/{song}/accompaniment/{id}": {
@@ -33205,6 +33253,11 @@
           "preview": {
             "type": "boolean",
             "default": false
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Job creation timestamp in Unix milliseconds"
           }
         },
         "required": [
@@ -33265,7 +33318,8 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AudioVersion"
-            }
+            },
+            "description": "Existing generated files for the current media fingerprint, including versions older than the recent processing history. Missing/deleted files are omitted."
           },
           "originalSelection": {
             "type": "object",
@@ -33292,6 +33346,10 @@
           "receiverProbed": {
             "type": "boolean",
             "description": "False for adopted package declarations and unprobed unique-audio song selection."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Source media duration in seconds, when known"
           }
         },
         "required": [
@@ -35914,6 +35972,11 @@
               "audio/mp4",
               "audio/flac"
             ]
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Job creation timestamp in Unix milliseconds"
           }
         }
       },

@@ -14,6 +14,7 @@ func (s *Service) registerAudioRoutes(g *gin.RouterGroup) {
 	}
 	g.POST("/media-songs/:id/audio-jobs", s.submitAudioJobHTTP)
 	g.POST("/media-songs/:id/accompaniment/:job/activate", s.activateAudioHTTP)
+	g.DELETE("/media-songs/:id/accompaniment/:job", s.deleteAudioHTTP)
 	g.POST("/media-songs/:id/audio-jobs/:job/cancel", s.cancelAudioJobHTTP)
 	for _, method := range []string{"GET", "HEAD"} {
 		g.Handle(method, "/media-songs/:id/accompaniment/:job", s.accompanimentHTTP)
@@ -37,6 +38,12 @@ func (s *Service) submitAudioJobHTTP(c *gin.Context) {
 
 func (s *Service) activateAudioHTTP(c *gin.Context) {
 	s.respond(c, 200, func(ctx context.Context) (any, error) { return s.activateAudio(ctx, c.Param("id"), c.Param("job")) })
+}
+
+func (s *Service) deleteAudioHTTP(c *gin.Context) {
+	s.respond(c, http.StatusNoContent, func(ctx context.Context) (any, error) {
+		return nil, s.deleteAudio(ctx, c.Param("id"), c.Param("job"))
+	})
 }
 
 func (s *Service) cancelAudioJobHTTP(c *gin.Context) {

@@ -48,6 +48,21 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 	if err != nil {
 		return nil, err
 	}
+	// Generated versions remain manageable after newer probe/analysis jobs push
+	// them out of the bounded processing history.
+	generated, err := s.maps(ctx, db, "audio-versions-for-song", map[string]any{"song": songID, "fingerprint": fp})
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(history))
+	for _, job := range history {
+		seen[str(job, "id")] = true
+	}
+	for _, job := range generated {
+		if !seen[str(job, "id")] {
+			history = append(history, job)
+		}
+	}
 	selection, err := s.optional(ctx, db, "audio-selection", map[string]any{"song": songID})
 	if err != nil {
 		return nil, err
@@ -79,7 +94,7 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 	versions := []any{}
 	var active map[string]any
 	for _, job := range history {
-		view := map[string]any{"id": str(job, "id"), "kind": str(job, "kind"), "state": str(job, "state"), "error": str(job, "error")}
+		view := map[string]any{"id": str(job, "id"), "kind": str(job, "kind"), "state": str(job, "state"), "error": str(job, "error"), "createdAt": integer(job["created_at"])}
 		spec := storedRecipe(job)
 		if str(job, "kind") == "SEPARATE" {
 			for key, value := range spec.view() {
@@ -114,6 +129,7 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 		if str(job, "kind") == "SEPARATE" && str(job, "state") == "SUCCEEDED" && regular(s.audioPath(job)) {
 			resource := spec.view()
 			resource["jobId"] = str(job, "id")
+			resource["createdAt"] = integer(job["created_at"])
 			resource["mediaType"] = "audio/mp4"
 			if spec.format == "flac" {
 				resource["mediaType"] = "audio/flac"
