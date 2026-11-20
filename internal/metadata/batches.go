@@ -572,7 +572,9 @@ func (s *Service) ProcessNext(ctx context.Context) error {
 			if cfg.Enabled && cfg.AutoApply {
 				threshold = math.Max(w.threshold, cfg.Threshold)
 			}
-			if candidates[0].Score >= threshold {
+			if candidates[0].Score >= threshold && closeRecordingAlternative(result.Candidates) {
+				message = "存在同分或相近候选，请核对专辑、日期与录音版本后人工确认；未自动写入"
+			} else if candidates[0].Score >= threshold {
 				latest, e := s.song(ctx, tx, text(w.song["id"]))
 				if e == nil && confirmed(latest) {
 					state, message = "MANUAL_APPLIED", "查询期间歌曲已确认，保留已有元数据"
@@ -614,6 +616,21 @@ func (s *Service) ProcessNext(ctx context.Context) error {
 		})
 	}
 	return e
+}
+
+// A title/artist score alone cannot distinguish studio and live recordings.
+// Match the review workspace's eight-point margin before allowing an automatic write.
+func closeRecordingAlternative(candidates []Candidate) bool {
+	if len(candidates) < 2 {
+		return false
+	}
+	bestScore := int(math.Round(candidates[0].Score * 1000))
+	for _, candidate := range candidates[1:] {
+		if candidate.ID != candidates[0].ID && bestScore-int(math.Round(candidate.Score*1000)) < 80 {
+			return true
+		}
+	}
+	return false
 }
 func (s *Service) worker() {
 	defer s.wg.Done()

@@ -75,6 +75,9 @@ func playlistViewWith(r map[string]any, detail bool, byID map[string]map[string]
 }
 func adminProjection(raw map[string]any) map[string]any {
 	v := partyProjection(raw)
+	// 管理端需要区分同名录音及来自相同名称来源的不同文件。
+	// 只在管理员投影附带相对路径，不扩大亲友或电视端的媒体信息。
+	v["relativePath"] = raw["relativePath"]
 	if p, ok := v["coverPath"].(string); ok {
 		v["coverPath"] = strings.ReplaceAll(p, "/api/v1/tv/library/songs/", "/api/v1/metadata/songs/")
 	}

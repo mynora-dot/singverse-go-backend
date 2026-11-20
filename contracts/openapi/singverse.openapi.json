@@ -32364,7 +32364,7 @@
           "songs": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/PlaylistSong"
             }
           },
           "createdAt": {
@@ -32403,7 +32403,7 @@
           "songs": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/PlaylistSong"
             }
           },
           "candidateCount": {
@@ -38570,6 +38570,68 @@
           "url": {
             "type": "string",
             "pattern": "^/api/v1/client-releases/(mobile|tv)/apk\\?abi=(armeabi-v7a|arm64-v8a|x86|x86_64)$"
+          }
+        }
+      },
+      "PlaylistSong": {
+        "type": "object",
+        "description": "Administrator playlist recording identity. Optional metadata is returned only when available; durationMs is the actual media duration when known. relativePath is administrator-only.",
+        "required": [
+          "id",
+          "title",
+          "artists"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artists": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "coverPath": {
+            "type": "string"
+          },
+          "album": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "releaseDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "relativePath": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }

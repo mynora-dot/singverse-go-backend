@@ -140,9 +140,29 @@ func TestSearchCancellationStopsAllProviders(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("canceled searches did not release their provider gates")
 	}
-	for _, guard := range f.s.guards {
-		if len(guard.permit) != 0 {
-			t.Fatal("a canceled search retained the platform permit")
+	// The query cache returns cancellation promptly and cancels detached upstream
+	// work when its last waiter leaves. The provider goroutines release their
+	// permits asynchronously, so require bounded cleanup rather than synchronous
+	// teardown at the instant search returns.
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		released := true
+		for _, guard := range f.s.guards {
+			if len(guard.permit) != 0 {
+				released = false
+				break
+			}
+		}
+		if released {
+			break
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			t.Fatal("a canceled search retained the platform permit after waiting for cleanup")
 		}
 	}
 }
