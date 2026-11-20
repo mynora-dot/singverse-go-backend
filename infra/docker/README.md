@@ -75,6 +75,8 @@ make docker-macos-up
 
 N100 Linux NAS 使用 Docker Hub 预构建镜像时，可直接复制 [N100 独立部署目录](n100/README.md)，其中包含双容器 Compose、OpenVINO/QSV 设备映射、8GB/16GB 资源建议和可选本地曲库挂载。
 
+NVIDIA RTX A3000 Linux 主机可直接使用 [A3000 单文件部署](a3000/README.md)：管理端与 CUDA 计算端同机运行，全部运行参数写在一个 `docker-compose.yaml` 中，无需 `.env`。
+
 ```sh
 cp .env.example .env
 # 按部署需要修改占位配置；已有 .env 不覆盖。

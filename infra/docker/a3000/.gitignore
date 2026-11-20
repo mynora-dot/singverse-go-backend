@@ -1,0 +1,16 @@
+# Bind-mounted runtime data stays on the deployment host.
+/singverse-data/
+/singverse-secrets/
+/singverse-media/
+/singverse-downloads/
+/singverse-compute-auth/
+/singverse-transcode-cache/
+/singverse-audio-models/
+
+# Host-specific overrides may contain private paths, addresses or credentials.
+/docker-compose.override.yml
+/docker-compose.override.yaml
+/compose.override.yml
+/compose.override.yaml
+/docker-compose.local.yml
+/docker-compose.local.yaml
