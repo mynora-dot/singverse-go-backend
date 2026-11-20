@@ -234,7 +234,7 @@ func (s *Service) download(ctx context.Context, item map[string]any) error {
 				return s.finish(ctx, tx, id, "SKIPPED", quality, str(asset, "relative_path"), str(asset, "song_id"), str(asset, "content_hash"), "已在曲库，保留已有文件")
 			})
 		}
-		address, resolveErr := s.runtime.Resolve(ctx, body, str(script, "environment"), track.Platform, quality, track.MusicInfo)
+		address, resolveErr := s.runtime.Resolve(ctx, body, str(script, "environment"), track.Platform, quality, sourceMusicInfo(track))
 		if resolveErr != nil {
 			if str(item, "requested_quality") == "auto" && errors.Is(resolveErr, lxruntime.ErrQualityUnavailable) && index+1 < len(available) {
 				continue

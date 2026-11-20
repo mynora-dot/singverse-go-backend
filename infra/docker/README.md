@@ -116,3 +116,7 @@ python3 infra/docker/check-bundled-releases.py --image singverse:local
 ```
 
 硬件覆盖仍需真实设备验证。发布配置见 [PUBLISHING](PUBLISHING.md)，历史迁移注意事项见 [OPERATIONS](OPERATIONS.md)。
+
+RK3566 ARM64 板可使用 [RK3566 测试部署](rk3566/README.md)，使用独立测试项目和 `18081` 端口；提供 RKNN 音频映射及可选 MPP 视频测试，设备路径须按板端驱动核对。
+
+AMD Radeon 780M 核显可使用 [780M 单文件部署](amd780m/README.md)，直接填写完整环境变量并使用相对目录绑定；视频为 VAAPI，音频使用 ROCm 镜像并按实际模型后端试跑。

@@ -20,7 +20,7 @@ func (c *publicCatalog) Search(ctx context.Context, platform, query string, page
 	return querycache.Load(ctx, &c.queryCache, querycache.Key("search", platform, query, strconv.Itoa(page)), func(ctx context.Context) (CatalogPage, time.Duration, error) {
 		out, err := c.search(ctx, platform, query, page)
 		ttl := 10 * time.Minute
-		if len(out.Tracks) == 0 {
+		if len(out.Tracks) == 0 || out.Warning != "" {
 			ttl = time.Minute
 		}
 		return out, ttl, err
@@ -85,7 +85,14 @@ func (c *publicCatalog) search(ctx context.Context, platform, query string, page
 	if e != nil {
 		return CatalogPage{}, e
 	}
-	return catalogPage(platform, rows, total, int64(page*20) < total, "")
+	result, e := catalogPage(platform, rows, total, int64(page*20) < total, "")
+	if e == nil && platform == "wy" {
+		result = c.completeNeteaseSearch(ctx, result)
+	}
+	if e == nil && platform == "kw" {
+		result = c.completeKuwoSearch(ctx, result)
+	}
+	return result, e
 }
 
 var shareLink = regexp.MustCompile(`(?i)https?://[^\s<>“”"']+`)

@@ -45,6 +45,13 @@ func (s *Service) modelActionHTTP(action string) gin.HandlerFunc {
 				s.report(c, err)
 				return
 			}
+			if model == "uvr-mdxnet-9482-rknn" {
+				var ok bool
+				body, ok = decodeInput(c)
+				if !ok {
+					return
+				}
+			}
 			path += "?model=" + model
 		}
 		s.respond(c, 200, func(ctx context.Context) (any, error) { return s.nodeCall(ctx, path, "POST", body) })

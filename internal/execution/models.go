@@ -58,8 +58,23 @@ func (s *Service) uploadModel(ctx context.Context, request *http.Request, model 
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		status := 502
-		if oneOfInt(response.StatusCode, 413, 422) {
+		if oneOfInt(response.StatusCode, 400, 409, 413, 422, 507) {
 			status = response.StatusCode
+		}
+		if model == "uvr-mdxnet-9482-rknn" && status != 502 {
+			var problem struct {
+				Detail string `json:"detail"`
+				Title  string `json:"title"`
+			}
+			if json.NewDecoder(io.LimitReader(response.Body, 8192)).Decode(&problem) == nil {
+				message := problem.Detail
+				if message == "" {
+					message = problem.Title
+				}
+				if message != "" && len(message) <= 2048 {
+					return nil, fail(status, scrub(message, connection.Token).(string))
+				}
+			}
 		}
 		return nil, fail(status, "模型导入失败，请检查摘要、模型目录及节点状态")
 	}

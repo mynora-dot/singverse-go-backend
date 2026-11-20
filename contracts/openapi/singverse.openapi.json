@@ -17088,12 +17088,41 @@
                 "panns-cnn6",
                 "htdemucs",
                 "htdemucs-openvino",
-                "uvr-mdxnet-9482"
+                "uvr-mdxnet-9482",
+                "uvr-mdxnet-9482-rknn"
               ],
               "default": "htdemucs"
             }
           }
-        ]
+        ],
+        "description": "RKNN accepts an administrator-provided public HTTPS ZIP URL and SHA-256 in the request body. Other models continue using their pinned catalog sources. Installation checks the target board, pinned source model, toolkit version, sizes and digests; installation does not qualify inference.",
+        "requestBody": {
+          "required": false,
+          "description": "Required only for model=uvr-mdxnet-9482-rknn. The source is used for this operation only and is not persisted.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "url",
+                  "sha256"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 4096
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-fA-F]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/audio-processing/model/cancel": {
@@ -17352,12 +17381,14 @@
                 "panns-cnn6",
                 "htdemucs",
                 "htdemucs-openvino",
-                "uvr-mdxnet-9482"
+                "uvr-mdxnet-9482",
+                "uvr-mdxnet-9482-rknn"
               ],
               "default": "htdemucs"
             }
           }
-        ]
+        ],
+        "description": "RKNN ZIP (maximum 512 MiB) contains manifest.json and uvr.rknn at its root, or target directories rk3566/, rk3568/, rk3588/ with one such pair per target. The compute node installs only the matching board variant. Invalid, corrupt, mismatched, extra, duplicate and unsafe ZIP members are rejected without replacing an existing model."
       }
     },
     "/api/v1/auth/username": {

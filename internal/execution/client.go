@@ -19,7 +19,7 @@ import (
 )
 
 var nodeResource = regexp.MustCompile(`^/internal/v1/(?:transcoding|audio-roles)/[a-zA-Z0-9/_.-]+$`)
-var modelResource = regexp.MustCompile(`^/internal/v1/audio-roles/models/(?:download|import)\?model=(?:panns-cnn6|htdemucs|htdemucs-openvino|uvr-mdxnet-9482)$`)
+var modelResource = regexp.MustCompile(`^/internal/v1/audio-roles/models/(?:download|import)\?model=(?:panns-cnn6|htdemucs|htdemucs-openvino|uvr-mdxnet-9482|uvr-mdxnet-9482-rknn)$`)
 var byteRange = regexp.MustCompile(`^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$`)
 
 type idleConn struct{ net.Conn }

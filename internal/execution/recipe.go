@@ -143,6 +143,8 @@ func modelMaximum(model string) (int64, error) {
 		return 128 << 20, nil
 	case "uvr-mdxnet-9482":
 		return 40 << 20, nil
+	case "uvr-mdxnet-9482-rknn":
+		return 512 << 20, nil
 	default:
 		return 0, fail(400, "未知音频模型")
 	}

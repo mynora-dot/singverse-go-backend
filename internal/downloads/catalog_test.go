@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 type catalogFixture struct {
+	mu     sync.Mutex
 	route  func(*url.URL) (any, error)
 	last   *url.URL
 	method string
@@ -20,6 +22,8 @@ type catalogFixture struct {
 }
 
 func (n *catalogFixture) Request(ctx context.Context, address, method string, headers map[string]string, body []byte, limit int, httpsOnly bool) (Reply, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	u, e := url.Parse(address)
 	if e != nil {
 		return Reply{}, e
@@ -100,7 +104,18 @@ func TestCatalogFivePlatformSearchDetailAndCollections(t *testing.T) {
 	for _, p := range []string{"wy", "tx", "kg", "kw", "mg"} {
 		t.Run(p, func(t *testing.T) {
 			row := catalogRow(p)
-			network := &catalogFixture{route: func(u *url.URL) (any, error) { return catalogWrap(p, row, "search"), nil }}
+			network := &catalogFixture{}
+			network.route = func(u *url.URL) (any, error) {
+				if p == "wy" {
+					if strings.Contains(u.Path, "song/detail") {
+						return catalogWrap(p, row, "detail"), nil
+					}
+					if network.method != "POST" || !strings.Contains(network.body, "type=1") {
+						t.Fatal(network.method, network.body)
+					}
+				}
+				return catalogWrap(p, row, "search"), nil
+			}
 			c := &publicCatalog{network: network}
 			found, e := c.Search(context.Background(), p, "测试", 1)
 			if e != nil || len(found.Tracks) != 1 {
@@ -109,9 +124,6 @@ func TestCatalogFivePlatformSearchDetailAndCollections(t *testing.T) {
 			track := found.Tracks[0]
 			if track.Title != "测试歌曲" || len(track.Artists) != 1 || track.Artists[0] != "测试歌手" || track.Album != "测试专辑" || track.DurationMS == nil || *track.DurationMS != 180000 {
 				t.Fatal(track)
-			}
-			if p == "wy" && (network.method != "POST" || !strings.Contains(network.body, "type=1")) {
-				t.Fatal(network.method, network.body)
 			}
 			if p == "kg" && catalogText(at(track.MusicInfo, "meta", "_qualitys", "flac"), "hash") != "2123456789ABCDEF0123456789ABCDEF" {
 				t.Fatal(track.MusicInfo)

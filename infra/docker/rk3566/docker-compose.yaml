@@ -1,0 +1,147 @@
+# Linux ARM64 + RK3566，管理端和 RKNN 计算端同机测试。
+# 直接使用 Docker Hub 镜像；全部配置为字面值，不依赖 .env 或 shell 环境变量。
+# 数据直接保存在本文件旁的 ./singverse-* 目录中，无需命名卷或权限初始化。
+# 两个容器显式使用 root 读写挂载目录，无需重打现有镜像。
+# 测试使用独立项目名及宿主 18081 端口；请放在独立目录保存测试数据。
+name: singverse-rk3566-test
+
+services:
+  singverse-go-backend:
+    image: docker.io/mynora/singverse:latest
+    platform: linux/arm64
+    user: "0:0"
+    environment:
+      TZ: Asia/Shanghai
+      SINGVERSE_DB_DRIVER: sqlite
+      SINGVERSE_BIND_ADDRESS: 0.0.0.0
+      SERVER_PORT: "8080"
+      SQLITE_PATH: /data/singverse.db
+      SINGVERSE_AUTH_KEY_FILE: /secrets/master.key
+      DBMATE_BIN: /usr/local/bin/dbmate
+      SINGVERSE_MIGRATIONS_DIR: /opt/singverse/database/migrations
+
+      # 计算端生成 token 并写入共享目录；管理端只读，不需要手填密钥。
+      COMPUTE_NODE_URL: http://singverse-compute:8090
+      COMPUTE_AUTH_TOKEN_FILE: /run/singverse-compute/token
+      SINGVERSE_COMPUTE_AUTO_CALLBACK_ORIGIN: http://singverse-go-backend:8080
+      SINGVERSE_CALLBACK_ORIGIN: http://singverse-go-backend:8080
+
+      # 直连 HTTP；部署 HTTPS 反向代理时再填写 origin 和代理 IP/CIDR。
+      SINGVERSE_PUBLIC_ORIGIN: ""
+      SINGVERSE_TRUSTED_PROXIES: ""
+      WEBDAV_METADATA_PATH: /data/metadata/webdav
+      METADATA_CACHE_PATH: /data/metadata/covers
+      TRANSCODE_VERSION_PATH: /data/transcoding
+      SINGVERSE_SONG_CACHE_PATH: /data/transcoding/cache
+      SINGVERSE_SONG_CACHE_BYTES: "4294967296"
+      SINGVERSE_SONG_CACHE_MINIMUM_FREE_BYTES: "2147483648"
+      AUDIO_DERIVED_PATH: /data/audio-roles
+
+      SINGVERSE_CLIENT_RELEASE_DIRECTORY: /opt/singverse/releases
+      # 空字符串表示使用镜像内 APK、不启用容器原生 mDNS 或诊断端口。
+      SINGVERSE_TV_RELEASE_DIRECTORY: ""
+      SINGVERSE_TV_DISCOVERY_ADDRESS: ""
+      SINGVERSE_TV_DISCOVERY_PORT: "18081"
+      SINGVERSE_DIAGNOSTICS_ADDRESS: ""
+    ports:
+      - "0.0.0.0:18081:8080"
+    volumes:
+      - ./singverse-data:/data
+      - ./singverse-secrets:/secrets
+      - ./singverse-compute-auth:/run/singverse-compute:ro
+      # WebDAV 曲库可保持空目录；本地曲库可放入此目录或修改左侧路径。
+      - ./singverse-media:/media:ro
+      - ./singverse-downloads:/downloads
+    mem_limit: 768m
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 6
+    restart: unless-stopped
+    stop_grace_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  singverse-compute:
+    image: docker.io/mynora/singverse-compute:latest-rknn
+    platform: linux/arm64
+    user: "0:0"
+    init: true
+    command: ["python", "-m", "singverse_compute", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      TZ: Asia/Shanghai
+      SINGVERSE_COMPUTE_VARIANT: rknn
+      COMPUTE_AUTH_TOKEN_FILE: /run/singverse-compute/token
+      COMPUTE_LAN_PAIRING_ENABLED: "false"
+      COMPUTE_TRANSCODE_ROOT: /var/cache/singverse-transcode
+      COMPUTE_FFMPEG: /usr/lib/jellyfin-ffmpeg/ffmpeg
+      COMPUTE_FFPROBE: /usr/lib/jellyfin-ffmpeg/ffprobe
+      # 视频按实际试跑结果自动选择；NPU 映射只用于 RKNN 音频。
+      COMPUTE_HARDWARE_BACKEND: auto
+      # 当前不映射 MPP，未通过硬件试跑时按默认 CPU 降级策略使用软件编码。
+      COMPUTE_HARDWARE_DEVICE: ""
+      COMPUTE_PROCESS_MEMORY_BYTES: "536870912"
+      COMPUTE_TRANSCODE_CONCURRENCY: "1"
+      COMPUTE_CACHE_BYTES: "2147483648"
+      COMPUTE_MINIMUM_FREE_BYTES: "2147483648"
+      COMPUTE_AUDIO_MODEL_REPO: /var/lib/singverse-models/htdemucs
+      # 这是音频子进程的内存预算，不是显存容量。
+      COMPUTE_AUDIO_MEMORY_BYTES: "1342177280"
+      COMPUTE_AUDIO_THREADS: "2"
+      COMPUTE_AUDIO_WORKER_IDLE_SECONDS: "60"
+      COMPUTE_AUDIO_CPU_PYTHON: /opt/singverse-audio-cpu/bin/python
+      # RKNN Lite2 安装在系统 Python；RKNN 镜像没有 CUDA 的 accelerator venv。
+      COMPUTE_AUDIO_ACCELERATOR_PYTHON: /usr/local/bin/python
+    # 先在宿主核对驱动；左右分别为宿主路径与容器路径。
+    # 已实测 RK3566 的 NPU 是 renderD128；Lite2 还需 renderD129 别名。
+    devices:
+      - /dev/dri/card0:/dev/dri/card0
+      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/dri/renderD128:/dev/dri/renderD129
+      # 可选 MPP 视频测试：确认宿主存在这些节点后，取消下面三行注释并重建容器。
+      # - /dev/mpp_service:/dev/mpp_service
+      # - /dev/rga:/dev/rga
+      # - /dev/dma_heap:/dev/dma_heap
+    volumes:
+      # 必须是宿主已有的、与驱动和 Lite2 匹配的 ARM64 运行库。
+      - type: bind
+        source: /usr/lib/librknnrt.so
+        target: /usr/lib/librknnrt.so
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /sys/firmware/devicetree/base
+        target: /run/singverse-hardware/device-tree
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: /sys/firmware/devicetree/base/compatible
+        target: /proc/device-tree/compatible
+        read_only: true
+        bind: {create_host_path: false}
+      - ./singverse-compute-auth:/run/singverse-compute
+      # 此目录也保存硬件/模型选择和试跑记录。
+      - ./singverse-transcode-cache:/var/cache/singverse-transcode
+      - ./singverse-audio-models:/var/lib/singverse-models
+    mem_limit: 2g
+    cpus: 2.0
+    shm_size: 128m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 6
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

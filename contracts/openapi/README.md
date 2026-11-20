@@ -156,7 +156,7 @@ TV 非转码增强新增设备专用 text-tracks 与 releases/current、releases
 
 compute 内部 `/internal/v1/audio-roles/tasks` 接收固定 UUID、mode=PROBE|ANALYZE|SEPARATE 和已授权输入，支持查询、cancel、artifact、release。PROBE 无需模型，ANALYZE/SEPARATE 仅在依赖与本地模型摘要均符合固定版本时声明能力。Go 持久化队列，compute 只执行、保存有限生命周期的执行记录和临时文件；节点重启的未完成执行标为 FAILED，不冒充完成。详见 compute README 的资源预算、模型安装及验证边界。
 
-`/api/v1/audio-processing` 为管理员伴奏中心：歌曲分页筛选、持久批次预览/提交/详情/取消/重试、单项取消、当前节点及模型下载/导入/试跑/选择。变更请求继续使用管理员会话和CSRF；上传按固定 `model` 参数接受有界原始权重或多文件模型 ZIP，省略参数兼容 htdemucs。基准上限 100MiB，htdemucs-openvino 上限 128MiB，未知模型及超限拒绝。compute内部 `/internal/v1/audio-roles/models` 使用Bearer鉴权，模型下载仅使用固定清单；原有单曲音轨接口保留。
+`/api/v1/audio-processing` 为管理员伴奏中心：歌曲分页筛选、持久批次预览/提交/详情/取消/重试、单项取消、当前节点及模型下载/导入/试跑/选择。变更请求继续使用管理员会话和CSRF；上传按固定 `model` 参数接受有界原始权重或多文件模型 ZIP，省略参数兼容 htdemucs。基准上限 100MiB，htdemucs-openvino 上限 128MiB，未知模型及超限拒绝。compute内部 `/internal/v1/audio-roles/models` 使用Bearer鉴权；原有单曲音轨接口保留。除 RKNN 外，模型下载仅使用固定清单。RKNN 模型 `uvr-mdxnet-9482-rknn` 下载请求体为 `{url,sha256}`，由管理员显式提供公网 HTTPS ZIP 地址和完整包的 SHA-256，不保存来源或传递内部认证头；重定向逐次校验公网地址。RKNN 离线导入与下载使用同一 ZIP 校验、安装流程，上限 512MiB。单芯片包根目录恰好包含 `manifest.json`、`uvr.rknn`；多芯片包可包含 `rk3566/`、`rk3568/`、`rk3588/` 目录，每个目录各有同名文件，按当前板型选择一组。模型须匹配固定 UVR 源摘要、工具链 2.3.2、当前芯片及声明的大小和 SHA-256；不接受路径穿越、重复或额外文件、加密及符号链接。安装成功不代表推理资格通过；已有模型不被不同内容覆盖，试跑与 CPU 降级设置保持独立。
 
 节点响应保留原 `model` 字段，并增加 `models`、`build` 和 `deployment`；后端支持 `openvino`，当前镜像未包含时返回 `IMAGE_MISSING`。可用资格绑定构建、运行库、设备与模型摘要；变更后须重新试跑。镜像构建及模型安装不等于硬件通过验收。
 

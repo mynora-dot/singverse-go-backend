@@ -69,6 +69,14 @@ func valueText(v any) string {
 	return ""
 }
 func catalogText(v any, keys ...string) string { return valueText(first(v, keys...)) }
+func catalogNonemptyText(v any, keys ...string) string {
+	for _, key := range keys {
+		if text := strings.TrimSpace(catalogText(v, key)); text != "" {
+			return text
+		}
+	}
+	return ""
+}
 func integer(v any, defaultValue int64) int64 {
 	if v == nil {
 		return defaultValue
@@ -272,6 +280,9 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		cover = catalogText(al, "picUrl", "blurPicUrl")
 		duration = durationMillis(first(row, "dt", "duration"), false)
 		meta["songId"] = row["id"]
+		for _, q := range []struct{ field, legacy, kind string }{{"l", "lMusic", "128k"}, {"h", "hMusic", "320k"}, {"sq", "sqMusic", "flac"}, {"hr", "hrMusic", "flac24bit"}} {
+			quality(&qs, q.kind, at(first(row, q.field, q.legacy), "size"), "")
+		}
 	case "tx":
 		id = catalogText(row, "songmid", "mid")
 		title = catalogText(row, "songname", "title", "name")
@@ -324,7 +335,7 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		singers = artist
 		album = catalogText(row, "AlbumName", "album_name")
 		albumID = catalogText(row, "AlbumID", "album_id")
-		cover = strings.ReplaceAll(catalogText(row, "imgurl"), "{size}", "400")
+		cover = kugouCatalogCover(row)
 		duration = durationMillis(first(row, "Duration", "duration", "timelength"), row["timelength"] == nil)
 		meta["hash"] = id
 		quality(&qs, "128k", first(row, "FileSize", "size"), id)
@@ -332,11 +343,11 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		quality(&qs, "flac", first(row, "SQFileSize", "sqfilesize"), catalogText(row, "SQFileHash", "hash_flac", "sqhash"))
 	case "kw":
 		id = strings.TrimPrefix(catalogText(row, "MUSICRID", "musicrid", "rid", "id"), "MUSIC_")
-		title = catalogText(row, "SONGNAME", "name", "songname")
+		title = catalogNonemptyText(row, "SONGNAME", "NAME", "name", "songname")
 		singers = first(row, "ARTIST", "artist", "singer")
 		album = catalogText(row, "ALBUM", "album")
 		albumID = catalogText(row, "ALBUMID", "albumid", "albumId")
-		cover = catalogText(row, "albumpic", "pic", "img")
+		cover = kuwoCatalogCover(row)
 		duration = durationMillis(first(row, "DURATION", "duration"), true)
 		meta["songId"] = id
 		formats := catalogText(row, "FORMATS", "formats", "KFORMATS")
@@ -426,6 +437,7 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		qualityMap[valueText(m["type"])] = q
 	}
 	meta["_qualitys"] = qualityMap
+	cover = safeCatalogCover(cover)
 	music := map[string]any{}
 	for k, v := range row {
 		music[k] = v
@@ -441,7 +453,9 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 	if p == "tx" {
 		music["strMediaMid"] = meta["strMediaMid"]
 	}
-	return Track{hash(p + ":" + id), p, id, title, names, cleanCatalog(album), duration, safeCatalogCover(cover), music}, nil
+	track := Track{hash(p + ":" + id), p, id, title, names, cleanCatalog(album), duration, cover, music}
+	track.MusicInfo = sourceMusicInfo(track)
+	return track, nil
 }
 func catalogPage(platform string, raw any, total int64, more bool, warning string) (CatalogPage, error) {
 	rows, ok := raw.([]any)
