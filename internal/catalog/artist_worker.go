@@ -35,7 +35,10 @@ func (s *Service) storeArtwork(ctx context.Context, tx store.DBTX, id, kind stri
 	if e = s.exec(ctx, tx, "a_imageSource", origin, c.Provider, c.ExternalID, address, id, kind); e != nil {
 		return e
 	}
-	return s.exec(ctx, tx, "a_attribution", c.Attribution, id, kind)
+	if e = s.exec(ctx, tx, "a_attribution", c.Attribution, id, kind); e != nil {
+		return e
+	}
+	return s.exec(ctx, tx, "a_touch", now(), id)
 }
 func (s *Service) artworkLoop(ctx context.Context, done chan<- struct{}) {
 	defer close(done)

@@ -49,6 +49,8 @@
 
 `GET /api/v1/media-songs` 汇总已保存的本地扫描歌曲，复用管理员会话，支持 `sourceId`、文件名搜索 `q`、复核状态 `status=ALL|REVIEW|MATCHED` 及 `page/size`。响应复用 MediaSongPage，歌曲包含来源名称；所有条件在数据库分页前执行。它不会触发扫描或播放，也不会访问 WebDAV。
 
+`GET /api/v1/media-songs/{id}/text-tracks` 为歌曲详情读取歌词，要求管理员 Cookie 会话，电视 Bearer 不适用。响应为 `songId/items/warnings`，优先保留正式歌词和人工清空，再读取来源目录内同名 LRC/SRT/VTT 或已缓存的内嵌歌词；同名 LRC 没有有效时间轴时返回 `format=text`，仍可显示正文。文本读取最多 256 KiB，支持 UTF-8/带 BOM 的 UTF-16，不触发下载或元数据写入，响应不缓存。
+
 ## 歌曲元数据刮削
 
 新增 `/api/v1/metadata` 下的设置、单曲搜索/应用、批次创建/查询/暂停/续跑/终止、明细重试/审核，以及候选/已确认封面代理。批次创建可在 `all=true` 时提供 `sourceId`，仅处理该媒体来源。新安装默认启用网易云、QQ、酷狗、酷我和汽水五个平台，自动写入默认关闭；升级保留已保存的配置。管理端入口为“设置 → 音乐平台”，单曲搜索只产生候选；所有操作需要管理员会话，非 GET 操作需要 CSRF。`MediaSong.metadata` 是当前正式资料的兼容投影；人工字段不会因文件指纹变化整体失效，`result` 中的原始标签不覆盖正式字段。批次完成与审核完成分开，最新批次不存在返回 204。字段、枚举、分页及路径以 JSON 契约为准，详细限制见[元数据刮削](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/docs/metadata-scraping.md)。

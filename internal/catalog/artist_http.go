@@ -38,7 +38,7 @@ func (s *Service) registerArtists(r *gin.Engine) {
 			}
 			less = &v
 		}
-		v, e := s.artistList(c.Request.Context(), ArtistFilter{Q: c.Query("q"), Type: c.Query("type"), CountLessThan: less, Artwork: c.Query("artwork")}, p, size)
+		v, e := s.artistList(c.Request.Context(), ArtistFilter{Q: c.Query("q"), Type: c.Query("type"), CountLessThan: less, Artwork: c.Query("artwork")}, p, size, c.DefaultQuery("sort", "NAME_ASC"))
 		s.reply(c, 200, v, e)
 	})
 	r.GET(base+"/:id", func(c *gin.Context) { v, e := s.artistGet(c.Request.Context(), c.Param("id")); s.reply(c, 200, v, e) })

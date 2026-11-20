@@ -2912,7 +2912,7 @@
               "type": "string",
               "maxLength": 200
             },
-            "description": "Literal case-insensitive substring of the effective confirmed title/artists, parsed identity fallback, or relative path. Ignores stale/unconfirmed metadata. Combined with q and other filters using AND; filtering and counting occur on the server before pagination in scannedAt DESC, id ASC order. Blank is ignored. Percent/underscore are literal; control characters rejected."
+            "description": "Literal case-insensitive substring of the effective confirmed title/artists, parsed identity fallback, or relative path. Ignores stale/unconfirmed metadata. Combined with q and other filters using AND; filtering and counting occur on the server before pagination in the selected sort order (default scannedAt DESC, id ASC). Blank is ignored. Percent/underscore are literal; control characters rejected."
           },
           {
             "in": "query",
@@ -2950,12 +2950,92 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SCANNED_DESC",
+                "UPDATED_DESC"
+              ],
+              "default": "SCANNED_DESC"
+            },
+            "description": "Sort all matching songs before pagination. SCANNED_DESC uses scannedAt DESC, id ASC. UPDATED_DESC uses the latest UTC scan, applied metadata, formal song/variant/media document, shared metadata, remote result, download, or classification history timestamp DESC, then id ASC. Whole and fractional seconds are ordered chronologically."
           }
         ],
         "security": [
           {
             "sessionCookie": []
           }
+        ]
+      }
+    },
+    "/api/v1/media-songs/{id}/text-tracks": {
+      "get": {
+        "operationId": "adminSongTextTracks",
+        "summary": "Read formal lyrics, bounded same-name sidecars, or cached embedded lyrics for song details; untimed LRC is returned as text.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileTextTracks"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Administrator session required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Song not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Media library"
         ]
       }
     },
@@ -12020,6 +12100,20 @@
               "default": ""
             },
             "description": "Filter before pagination and counting: MISSING excludes existing portrait covers; REVIEW requires portrait candidates."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "NAME_ASC",
+                "UPDATED_DESC"
+              ],
+              "default": "NAME_ASC"
+            },
+            "description": "Sort all matching artists before pagination. NAME_ASC uses name ASC, id ASC. UPDATED_DESC uses artist updatedAt DESC, id ASC; creation, category edits, and saved/removed portrait or background images update this timestamp. Reading lists and artwork retry/status polling do not touch it."
           }
         ],
         "responses": {

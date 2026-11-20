@@ -84,6 +84,7 @@ func decodeText(data []byte) (string, error) {
 }
 
 func (s *Service) textTracks(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	v, err := s.tracks(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		s.report(c, err)
@@ -212,6 +213,7 @@ func (s *Service) tracks(ctx context.Context, key string) (document, error) {
 			if hasTimedLyrics(str(item, "text")) {
 				return document{"songId": key, "items": items, "warnings": warnings}, nil
 			}
+			item["format"] = "text"
 			break
 		}
 	}

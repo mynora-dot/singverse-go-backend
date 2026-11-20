@@ -90,6 +90,7 @@ func (s *Service) songsHTTP(c *gin.Context, sourceOnly bool) {
 	sourceID, q, status := c.Query("sourceId"), c.Query("q"), c.DefaultQuery("status", "ALL")
 	tagIDs := c.QueryArray("tagIds")
 	unclassified := c.DefaultQuery("unclassified", "false")
+	orderBy := c.DefaultQuery("sort", "SCANNED_DESC")
 	if sourceOnly {
 		sourceID = c.Param("id")
 		q = ""
@@ -97,6 +98,19 @@ func (s *Service) songsHTTP(c *gin.Context, sourceOnly bool) {
 		status = "ALL"
 		tagIDs = nil
 		unclassified = "false"
+		orderBy = "SCANNED_DESC"
+	}
+	order := s.q["song-search-order"]
+	switch orderBy {
+	case "SCANNED_DESC":
+	case "UPDATED_DESC":
+		order = s.q["song-updated-order"]
+		if s.dialect == "sqlite" {
+			order = strings.Replace(order, "GREATEST(", "MAX(", 1)
+		}
+	default:
+		s.fail(c, bad("请选择有效的歌曲排序方式"))
+		return
 	}
 	if (sourceID != "" && (!validID.MatchString(sourceID) || len(sourceID) > 36)) || len([]rune(q)) > 200 || controls(q) || len([]rune(search)) > 200 || controls(search) || len(tagIDs) > 40 || (unclassified != "true" && unclassified != "false") {
 		s.fail(c, bad("歌曲筛选参数无效"))
@@ -148,16 +162,16 @@ func (s *Service) songsHTTP(c *gin.Context, sourceOnly bool) {
 			}
 		}
 		if search != "" {
-			return s.searchSongs(ctx, tx, filter, args, search, &out)
+			return s.searchSongs(ctx, tx, filter, args, search, order, &out)
 		}
 		if e := tx.QueryRowContext(ctx, s.q["song-count"]+filter, args...).Scan(&out.TotalElements); e != nil {
 			return e
 		}
-		order := s.q["song-order"]
+		pageOrder := order + " LIMIT ? OFFSET ?"
 		if sourceOnly {
-			order = s.q["song-source-order"]
+			pageOrder = s.q["song-source-order"]
 		}
-		rows, e := tx.QueryxContext(ctx, s.q["song-columns"]+filter+order, append(args, size, page*size)...)
+		rows, e := tx.QueryxContext(ctx, s.q["song-columns"]+filter+pageOrder, append(args, size, page*size)...)
 		if e != nil {
 			return e
 		}

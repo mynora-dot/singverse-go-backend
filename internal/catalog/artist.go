@@ -204,7 +204,10 @@ func (s *Service) filteredArtists(ctx context.Context, tx store.DBTX, f ArtistFi
 	}
 	return items, nil
 }
-func (s *Service) artistList(ctx context.Context, f ArtistFilter, p, size int) (any, error) {
+func (s *Service) artistList(ctx context.Context, f ArtistFilter, p, size int, order string) (any, error) {
+	if !has(order, "NAME_ASC", "UPDATED_DESC") {
+		return nil, fail(400, "请选择有效的歌手排序方式")
+	}
 	if e := pages(p, size); e != nil {
 		return nil, e
 	}
@@ -216,6 +219,18 @@ func (s *Service) artistList(ctx context.Context, f ArtistFilter, p, size int) (
 	})
 	if e != nil {
 		return nil, e
+	}
+	if order == "UPDATED_DESC" {
+		// Stored timestamps are UTC RFC3339Nano. Dropping Z also orders whole
+		// seconds correctly against fractional seconds within the same second.
+		sort.Slice(items, func(i, j int) bool {
+			a := strings.TrimSuffix(str(items[i]["updatedAt"]), "Z")
+			b := strings.TrimSuffix(str(items[j]["updatedAt"]), "Z")
+			if a == b {
+				return str(items[i]["id"]) < str(items[j]["id"])
+			}
+			return a > b
+		})
 	}
 	return page(items, p, size), nil
 }
@@ -301,6 +316,9 @@ func (s *Service) artistImage(ctx context.Context, id, kind, expected string, b 
 				e = s.exec(ctx, tx, "a_updateImage", version, b, id, k)
 			}
 			if e != nil {
+				return nil, e
+			}
+			if e = s.exec(ctx, tx, "a_touch", now(), id); e != nil {
 				return nil, e
 			}
 		}

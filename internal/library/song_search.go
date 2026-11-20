@@ -12,8 +12,8 @@ import (
 // JSON LIKE on saved candidates would also match stale or superseded identities.
 // Only the requested page is retained; filtering and counting precede pagination.
 // q remains the existing path-only SQL predicate, independent of search.
-func (s *Service) searchSongs(ctx context.Context, tx store.DBTX, filter string, args []any, search string, out *Page[Song]) error {
-	rows, err := tx.QueryxContext(ctx, s.q["song-columns"]+filter+s.q["song-search-order"], args...)
+func (s *Service) searchSongs(ctx context.Context, tx store.DBTX, filter string, args []any, search, order string, out *Page[Song]) error {
+	rows, err := tx.QueryxContext(ctx, s.q["song-columns"]+filter+order, args...)
 	if err != nil {
 		return err
 	}

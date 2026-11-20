@@ -392,6 +392,7 @@ func (s *Service) searchSongs(c *gin.Context, mobile bool) {
 	c.JSON(200, out)
 }
 func (s *Service) registerLibrary(r *gin.Engine) {
+	r.GET("/api/v1/media-songs/:id/text-tracks", s.textTracks)
 	for _, prefix := range []string{"tv", "party"} {
 		r.GET("/api/v1/"+prefix+"/library/songs", s.RequireActor(false), func(c *gin.Context) { s.searchSongs(c, false) })
 		r.GET("/api/v1/"+prefix+"/library/classification-tags", s.RequireActor(false), func(c *gin.Context) {
