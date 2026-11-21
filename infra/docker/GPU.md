@@ -48,7 +48,7 @@ docker compose --project-directory . -f infra/docker/compose/compose.compute.yam
 
 ## macOS
 
-使用 singverse-compute 正式 Release 的 `singverse-compute-macos-arm64-<版本>.tar.gz` 和校验文件，按 [Mac 原生安装指南](https://github.com/mynora-dot/singverse-compute/blob/main/MACOS.md)准备原生 ARM64 Python 3.12，运行 `Install.command` 与 `Start.command`。此包提供 MPS / MLX / VideoToolbox，CPU 为内部自动降级环境，不增加 Docker 标签，也不需要新增 GitHub Variables 或 Secrets。Docker 中的业务服务连接 `http://host.docker.internal:18090`，回调使用原生节点可访问的 NAS HTTP 地址；Linux Docker 容器不能代替原生 Apple GPU 节点。
+使用 singverse-compute 正式 Release 的 `singverse-compute-macos-arm64-<版本>.dmg` 和校验文件，按 [Mac 原生安装指南](https://github.com/mynora-dot/singverse-compute/blob/main/MACOS.md)准备原生 ARM64 Python 3.12，挂载 DMG 后将整个目录复制到可写位置，再运行 `Install.command` 与 `Start.command`。此包提供 MPS / MLX / VideoToolbox，CPU 为内部自动降级环境，不增加 Docker 标签，也不需要新增 GitHub Variables 或 Secrets。Docker 中的业务服务连接 `http://host.docker.internal:18090`，回调使用原生节点可访问的 NAS HTTP 地址；Linux Docker 容器不能代替原生 Apple GPU 节点。
 
 ## 验证限制
 
