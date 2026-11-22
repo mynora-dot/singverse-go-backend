@@ -240,7 +240,7 @@ Nginx 为上述两个批量写入接口单独允许 128 KiB 请求，以容纳 1
 
 ## 媒体资料导入与来源入库
 
-来源创建可选 `startScan` 和 WebDAV 的 `autoExtractEmbedded`；省略时保持旧客户端只保存的行为。后台导入使用 `embedded-metadata/import-jobs` 上传、预览、映射、确认、查询、取消与重试，返回 lower camelCase 的 `MediaImportJob`；上传完成后由服务端续跑。`rebind` 保留歌曲身份与本地订正，单独重新核验媒体。默认共享 v4 使用稳定系列、版本与正式对象，兼容 v2/v3 导入；默认完整 ZIP，增量要求匹配基线，旧版本拒绝，删除提示不自动应用。详细状态、路径规则、限额及兼容边界见[媒体库说明](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/docs/media-library.md#媒体入库资料合并与分享2026-11-10)。
+来源创建可选 `startScan` 和 WebDAV 的 `autoExtractEmbedded`；省略时保持旧客户端只保存的行为。后台导入使用 `embedded-metadata/import-jobs` 上传、预览、映射、确认、查询、取消与重试，返回 lower camelCase 的 `MediaImportJob`；上传参数 `applyMode=auto` 表示离线解析后自动入库，默认 `preview` 等待确认并允许调整目录。HTTP 202 后由服务端独立续跑并核验目录。`rebind` 保留歌曲身份与本地订正，单独重新核验媒体。默认共享 v4 使用稳定系列、版本与正式对象，兼容 v2/v3 导入；默认完整 ZIP，增量要求匹配基线，旧版本拒绝，删除提示不自动应用。v4 字段与附件规则见[v4 资料包规范](../metadata/package-v4.md)。
 
 导入任务新增可选 `inputState`（`RETAINED` / `PENDING` / `RELEASED`）、`inputCleanupError`、`inputCleanupAfter`，单独表示上传 ZIP 的保留与回收；资料条目、附件引用和基线全部持久化后即可回收 ZIP，核验、取消后恢复和显式重试读取持久化记录。清理失败延后自动重试，不改变导入结果或重复应用资料。确认 WebDAV 导入后先离线保存元数据与附件，再自动进入 `VERIFYING`。后台根据父目录清单核验相对路径及已知大小，记录条目结果后任务返回 `SUCCEEDED`。旧版已停在 `SUCCEEDED/IMPORTED` 的任务仍可通过 `POST .../retry` 发起首次核验。每轮核验只列举每个父目录一次，失败保存到条目，显式重试仅重查失败项；相同 URL 更换账号时全部重新核验。`pathOnlyCount` 是 `presentCount` 中未校验大小的数量，样本可返回 `verification` 与 `verificationLevel`（`PATH_ONLY` / `PATH_AND_SIZE` / `null`），避免将未知大小当作大小一致。
 

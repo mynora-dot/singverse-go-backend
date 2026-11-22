@@ -22526,7 +22526,7 @@
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs": {
       "post": {
         "operationId": "uploadMediaImport",
-        "summary": "Upload a local metadata ZIP; parse in background and preview before application.",
+        "summary": "Upload a metadata ZIP for automatic import or manual preview.",
         "parameters": [
           {
             "in": "path",
@@ -22536,6 +22536,20 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "in": "query",
+            "name": "applyMode",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "preview"
+              ],
+              "default": "preview"
+            },
+            "description": "Auto mode queues the validated package for application. Preview mode waits for explicit apply and allows path mapping."
           }
         ],
         "requestBody": {
@@ -22570,7 +22584,7 @@
             "description": "8 GiB total/32 MiB part/5000 entries per part exceeded"
           }
         },
-        "description": "Upload must finish before leaving. After 202, browser connection is no longer required. Accepts v2, v3 and v4 packages. One active import per source. Parsing and bounded apply checkpoints resume after restart; at most 100000 songs. After confirmation, WebDAV package imports persist metadata and attachments offline and automatically verify mapped paths using directory listings."
+        "description": "After HTTP 202 the durable job runs independently of the browser. Accepts v2, v3 and v4 packages, one active import per source, up to 100000 songs. After offline validation, auto mode queues the job. Preview mode waits for apply. Both modes save metadata offline and verify WebDAV paths and known sizes through directory listings. Parsing and application checkpoints survive restart."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs/latest": {
@@ -33293,6 +33307,10 @@
             },
             "description": "Daily activity counters and cooldown timestamps only. No daily song-count or byte quota; per-file bounds and access-group pacing/cooldowns still apply."
           },
+          "importProcessing": {
+            "type": "boolean",
+            "description": "A WebDAV package is parsing, applying or verifying. Manual preview is idle."
+          },
           "remoteReady": {
             "type": "boolean"
           },
@@ -33345,6 +33363,18 @@
                 "minimum": 0
               },
               "pendingVerification": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "missingFiles": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sizeMismatches": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unreachableFiles": {
                 "type": "integer",
                 "minimum": 0
               },
@@ -37393,9 +37423,17 @@
           },
           "contentDigest": {
             "type": "string"
+          },
+          "applyMode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "preview"
+            ],
+            "default": "preview"
           }
         },
-        "description": "Durable uploaded metadata workflow. No binding digest or credentials are returned. Latest may be an empty object. Samples are constructed from recipient source root; they never use sender addresses. WebDAV imports automatically enter VERIFYING after metadata is saved and reach SUCCEEDED when verification outcomes are recorded. Each run lists the distinct parent directories of the mapped package entries using Depth: 1 PROPFIND; explicit retry revisits failed items, or all items after source credentials change. PRESENT includes path-only observations; consult pathOnlyCount and verificationLevel for size evidence. ZIP cleanup is independent and preserves all durable import records."
+        "description": "Durable uploaded metadata workflow. No binding digest or credentials are returned. Latest may be an empty object. Only preview-mode jobs calculate preview counts and samples. Samples are constructed from recipient source root; they never use sender addresses. WebDAV imports automatically enter VERIFYING after metadata is saved and reach SUCCEEDED when verification outcomes are recorded. Each run lists the distinct parent directories of the mapped package entries using Depth: 1 PROPFIND; explicit retry revisits failed items, or all items after source credentials change. PRESENT includes path-only observations; consult pathOnlyCount and verificationLevel for size evidence. ZIP cleanup is independent and preserves all durable import records."
       },
       "SourceIngestTask": {
         "type": "object",
