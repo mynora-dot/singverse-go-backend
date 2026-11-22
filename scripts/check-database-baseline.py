@@ -12,9 +12,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "202611070001_initial_schema.sql"
 VERSION = BASELINE.split("_", 1)[0]
-MIGRATIONS = (BASELINE, "202611080001_background_tasks.sql", "202611090001_background_task_batches.sql", "202611090002_audio_separation_profiles.sql", "202611090003_lx_downloads.sql", "202611100001_artist_artwork_batches.sql", "202611100002_music_platform_defaults.sql", "202611100003_media_library_workflows.sql", "202611110001_metadata_standard.sql", "202611120001_login_preferences.sql", "202611120002_audio_recognition_batches.sql", "202611120003_matching_defaults.sql", "202611120005_import_input_cleanup.sql", "202611120006_analysis_read.sql", "202611140001_shared_favorites.sql", "202611150001_classification_cover_defaults.sql", "202611160001_assistant.sql")
+MIGRATIONS = (BASELINE, "202611080001_background_tasks.sql", "202611090001_background_task_batches.sql", "202611090002_audio_separation_profiles.sql", "202611090003_lx_downloads.sql", "202611100001_artist_artwork_batches.sql", "202611100002_music_platform_defaults.sql", "202611100003_media_library_workflows.sql", "202611110001_metadata_standard.sql", "202611120001_login_preferences.sql", "202611120002_audio_recognition_batches.sql", "202611120003_matching_defaults.sql", "202611120005_import_input_cleanup.sql", "202611120006_analysis_read.sql", "202611140001_shared_favorites.sql", "202611150001_classification_cover_defaults.sql", "202611160001_assistant.sql", "202611220001_import_apply_mode.sql")
 VERSIONS = sorted((name.split("_", 1)[0],) for name in MIGRATIONS)
-LEGACY_VERSIONS = VERSIONS[:-5]
+LEGACY_VERSIONS = VERSIONS[:-6]
 
 
 def require(condition, message):
@@ -111,24 +111,36 @@ def main():
     initial = verify_fresh(path)
     migrate("migrate")
     require(snapshot(path) == initial, "Second migrate changed schema or seeds")
+    migrate("down")  # Import apply mode.
+    with sqlite3.connect(path) as db:
+      require("apply_mode" not in {row[1] for row in db.execute("PRAGMA table_info(media_import_job)")}, "Import mode rollback left job column")
+      db.execute("INSERT INTO media_import_job(id,source_id,binding,state,phase,created_at,updated_at) VALUES('prior-import','source','binding','PREVIEW','PREVIEW','now','now')")
+    migrate("migrate")
+    with sqlite3.connect(path) as db:
+      require(db.execute("SELECT state,apply_mode FROM media_import_job WHERE id='prior-import'").fetchone() == ("PREVIEW", "preview"), "Historical import must still wait for confirmation")
+      db.execute("DELETE FROM media_import_job WHERE id='prior-import'")
+    require(snapshot(path) == initial, "Import mode rollback/rebuild changed prior data")
+    migrate("down")  # Import apply mode.
     migrate("down")  # Assistant state is isolated from existing business data.
     with sqlite3.connect(path) as db:
-      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-1], "Assistant rollback must preserve prior features")
+      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-2], "Assistant rollback must preserve prior features")
       require(not db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'assistant_%'").fetchall(), "Assistant rollback left tables or indexes")
     migrate("migrate")
     require(snapshot(path) == initial, "Assistant rollback/rebuild changed business data")
+    migrate("down")  # Import apply mode.
     migrate("down")  # Assistant before the existing rollback ladder.
     migrate("down")  # Built-in classification covers initialization marker.
     with sqlite3.connect(path) as db:
-      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-2], "Classification defaults rollback must retain prior features")
+      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-3], "Classification defaults rollback must retain prior features")
       require("builtin_covers_initialized" not in {row[1] for row in db.execute("PRAGMA table_info(classification_settings)")}, "Classification defaults rollback left marker")
     migrate("migrate")
     require(snapshot(path) == initial, "Classification defaults rollback/rebuild changed prior data")
+    migrate("down")  # Import apply mode.
     migrate("down")  # Assistant.
     migrate("down")  # Classification defaults again before the existing rollback ladder.
     migrate("down")  # Shared favorites; this is an isolated temporary database.
     with sqlite3.connect(path) as db:
-      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-3], "Favorites rollback must retain prior features")
+      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-4], "Favorites rollback must retain prior features")
       require(not db.execute("SELECT name FROM sqlite_master WHERE name IN ('nas_favorite','nas_favorites_state')").fetchall(), "Favorites rollback left tables")
       db.execute("INSERT INTO song_playback_profile(song_id,pinned,pin_revision) VALUES('favorite-upgrade-kept',1,1)")
     migrate("migrate")
@@ -136,12 +148,13 @@ def main():
       require(db.execute("SELECT pinned FROM song_playback_profile WHERE song_id='favorite-upgrade-kept'").fetchone() == (1,), "Favorites upgrade changed existing media state")
       db.execute("DELETE FROM song_playback_profile WHERE song_id='favorite-upgrade-kept'")
     require(snapshot(path) == initial, "Favorites rollback/rebuild changed prior data")
+    migrate("down")  # Import apply mode.
     migrate("down")  # Assistant.
     migrate("down")  # Classification defaults.
     migrate("down")  # Shared favorites again before the existing rollback ladder.
     migrate("down")  # Analysis read sessions.
     with sqlite3.connect(path) as db:
-      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-4], "Analysis rollback must preserve prior features")
+      require(sorted(db.execute("SELECT version FROM schema_migrations").fetchall()) == VERSIONS[:-5], "Analysis rollback must preserve prior features")
       require(not db.execute("SELECT name FROM sqlite_master WHERE name='media_analysis_read'").fetchall(), "Analysis rollback left read sessions")
     migrate("down")  # Independent import input cleanup.
     with sqlite3.connect(path) as db:

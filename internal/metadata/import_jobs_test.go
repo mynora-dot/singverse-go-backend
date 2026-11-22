@@ -46,6 +46,9 @@ func importStep(t *testing.T, f *fixture, source, id, want string) map[string]an
 		t.Fatal(err)
 	}
 	job := request(t, f.router, "GET", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+id, nil, 200)
+	if want == "PREVIEW" && job["applyMode"] != "preview" {
+		t.Fatalf("unexpected apply mode: %v", job["applyMode"])
+	}
 	if text(job["state"]) != want {
 		t.Fatalf("wanted %s: %v", want, job)
 	}
@@ -64,6 +67,95 @@ func applyWorkflow(t *testing.T, f *fixture, source string, data []byte, wantSta
 }
 func TestWorkflowMergesExistingUpdatesAndProtectsLocalEdits(t *testing.T) {
 	exerciseWorkflowMerge(t, setup(t))
+}
+
+func TestAutoImportResumesAfterUploadAndOnlyListsPackageDirectories(t *testing.T) {
+	exerciseAutoImport(t, setup(t))
+}
+
+func TestMySQLAutoImportResumesAfterUploadAndOnlyListsPackageDirectories(t *testing.T) {
+	db, cfg := testutil.MySQLDatabase(t)
+	exerciseAutoImport(t, setupWithDatabase(t, db, "mysql", cfg))
+}
+
+func exerciseAutoImport(t *testing.T, f *fixture) {
+	t.Helper()
+	var good, badDir atomic.Int64
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PROPFIND" || r.Header.Get("Depth") != "1" {
+			t.Errorf("unexpected media request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(405)
+			return
+		}
+		files := []string{"one.mkv", "two.mkv"}
+		switch r.URL.Path {
+		case "/dav/good/":
+			good.Add(1)
+		case "/dav/bad/":
+			badDir.Add(1)
+			files = []string{"changed.mkv"}
+		default:
+			t.Errorf("unexpected directory: %s", r.URL.Path)
+		}
+		w.WriteHeader(207)
+		fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:">`+verificationSelfXML(r.URL.Path))
+		for _, name := range files {
+			fmt.Fprintf(w, `<d:response><d:href>%s%s</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>6</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`, r.URL.Path, name)
+		}
+		fmt.Fprint(w, "</d:multistatus>")
+	}))
+	defer remote.Close()
+	source := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"type": "WEBDAV", "name": "自动导入", "location": remote.URL + "/dav/"}, 201)
+	sourceID := text(source["id"])
+	base := "/api/v1/media-sources/" + sourceID + "/embedded-metadata/import-jobs"
+	request(t, f.router, "POST", base+"?applyMode=typo", nil, 400)
+	data := workflowPackage(t, uuid(), 1, entry("good/one.mkv", 6), entry("good/two.mkv", 6), entry("bad/missing.mkv", 6), entry("bad/changed.mkv", 7))
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, httptest.NewRequest("POST", base+"?applyMode=auto", bytes.NewReader(data)))
+	if w.Code != 202 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	job := request(t, f.router, "GET", base+"/latest", nil, 200)
+	if job["applyMode"] != "auto" || job["state"] != "PARSING" || job["preview"] != nil {
+		t.Fatal(job)
+	}
+	id := text(job["id"])
+	request(t, f.router, "POST", base+"?applyMode=auto", nil, 409)
+	summaryURL := "/api/v1/media-sources/" + sourceID + "/embedded-metadata"
+	if summary := request(t, f.router, "GET", summaryURL, nil, 200); summary["importProcessing"] != true {
+		t.Fatal("source must refresh while the import is running", summary)
+	}
+	// A fresh service must advance the persisted intent without a browser calling /apply.
+	restarted, err := New(f.db, f.s.dialect, f.cfg, fixtureCipher{}, f.lib, f.s.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.cancel()
+	restarted.wg.Wait()
+	defer restarted.Close()
+	worker := *f
+	worker.s = restarted
+	importStep(t, &worker, sourceID, id, "QUEUED")
+	importStep(t, &worker, sourceID, id, "VERIFYING")
+	if good.Load()+badDir.Load() != 0 {
+		t.Fatal("received a directory request before verification")
+	}
+	job = importStep(t, &worker, sourceID, id, "SUCCEEDED")
+	if good.Load() != 1 || badDir.Load() != 1 || number(job["addedCount"]) != 4 || number(job["missingCount"]) != 1 || number(job["mismatchCount"]) != 1 {
+		t.Fatal(job, good.Load(), badDir.Load())
+	}
+	if summary := request(t, f.router, "GET", summaryURL, nil, 200); summary["importProcessing"] != false {
+		t.Fatal("finished import must stop source polling", summary)
+	}
+	quality, err := f.lib.SourceQuality(context.Background(), f.db, sourceID)
+	if err != nil || quality["missingFiles"] != 1 || quality["sizeMismatches"] != 1 {
+		t.Fatal(quality, err)
+	}
+	request(t, f.router, "POST", base+"/"+id+"/retry", nil, 200)
+	importStep(t, &worker, sourceID, id, "SUCCEEDED")
+	if good.Load() != 1 || badDir.Load() != 2 {
+		t.Fatal("retry directory counts", good.Load(), badDir.Load())
+	}
 }
 func TestMySQLWorkflowMergesExistingUpdatesAndProtectsLocalEdits(t *testing.T) {
 	db, cfg := testutil.MySQLDatabase(t)

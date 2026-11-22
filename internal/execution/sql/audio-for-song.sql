@@ -1,1 +1,1 @@
-SELECT job.*, reads.fingerprint AS read_fingerprint FROM media_audio_job job LEFT JOIN media_analysis_read reads ON reads.id=job.read_session_id WHERE job.song_id=@{song} AND job.fingerprint=@{fingerprint} ORDER BY job.created_at DESC,job.id DESC LIMIT 20
+SELECT job.*, read_session.fingerprint AS read_fingerprint FROM media_audio_job job LEFT JOIN media_analysis_read read_session ON read_session.id=job.read_session_id WHERE job.song_id=@{song} AND job.fingerprint=@{fingerprint} ORDER BY job.created_at DESC,job.id DESC LIMIT 20

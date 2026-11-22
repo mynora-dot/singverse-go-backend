@@ -27,6 +27,11 @@ func (s *Service) importFolder(id string) (string, error) {
 func (s *Service) uploadImport(c *gin.Context) {
 	ctx := c.Request.Context()
 	sourceID := c.Param("id")
+	applyMode := c.DefaultQuery("applyMode", "preview")
+	if applyMode != "auto" && applyMode != "preview" {
+		s.fail(c, bad("导入方式必须是 auto 或 preview"))
+		return
+	}
 	source, e := s.row(ctx, s.db, "source", map[string]any{"id": sourceID})
 	if e != nil {
 		s.fail(c, absent(e, "媒体来源不存在"))
@@ -91,7 +96,7 @@ func (s *Service) uploadImport(c *gin.Context) {
 		if scalar(rows) > 0 {
 			return conflict("此来源已有导入任务，请先完成或取消")
 		}
-		if _, e = s.exec(ctx, tx, "workflow-insert", map[string]any{"id": id, "sourceId": sourceID, "binding": hash(text(source["location"])), "now": now()}); e != nil {
+		if _, e = s.exec(ctx, tx, "workflow-insert", map[string]any{"id": id, "sourceId": sourceID, "binding": hash(text(source["location"])), "applyMode": applyMode, "now": now()}); e != nil {
 			return e
 		}
 		return s.project(ctx, tx, "SHARE_IMPORT", id)
@@ -120,6 +125,18 @@ func (s *Service) importJob(ctx context.Context, sourceID, id string) (map[strin
 	source, e := s.row(ctx, s.db, "source", map[string]any{"id": sourceID})
 	if e != nil {
 		return nil, absent(e, "媒体来源不存在")
+	}
+	pathOnly, e := s.rows(ctx, s.db, "workflow-pathOnlyCount", map[string]any{"id": id})
+	if e != nil {
+		return nil, e
+	}
+	job["path_only_count"] = scalar(pathOnly)
+	// Credential and opaque binding digests are not useful in the product.
+	delete(job, "binding")
+	delete(job, "verification_source_binding")
+	if text(job["apply_mode"]) == "auto" {
+		// Automatic imports never stop at preview. Poll their durable counters without joining the entire package to the library.
+		return importDTO(job), nil
 	}
 	samples, e := s.rows(ctx, s.db, "workflow-entries", map[string]any{"id": id, "cursor": 0})
 	if e != nil {
@@ -163,14 +180,6 @@ func (s *Service) importJob(ctx context.Context, sourceID, id string) (map[strin
 		return nil, e
 	}
 	job["preview"] = counts
-	pathOnly, e := s.rows(ctx, s.db, "workflow-pathOnlyCount", map[string]any{"id": id})
-	if e != nil {
-		return nil, e
-	}
-	job["path_only_count"] = scalar(pathOnly)
-	// Credential and opaque binding digests are not useful in the product.
-	delete(job, "binding")
-	delete(job, "verification_source_binding")
 	return importDTO(job), nil
 }
 func (s *Service) getImport(c *gin.Context) { s.respondImport(c, c.Param("id"), c.Param("jobId"), 200) }
@@ -534,6 +543,9 @@ func (s *Service) prepareImport(ctx context.Context, job map[string]any) error {
 		if text(fresh["state"]) != "PARSING" {
 			return conflict("导入任务已停止")
 		}
+		if e = s.validateImportBinding(ctx, tx, fresh); e != nil {
+			return e
+		}
 		if e = s.checkSharedBaseline(ctx, tx, text(job["source_id"]), manifest); e != nil {
 			return e
 		}
@@ -550,6 +562,9 @@ func (s *Service) prepareImport(ctx context.Context, job map[string]any) error {
 		}
 		if _, e = s.exec(ctx, tx, "workflow-manifest", map[string]any{"id": id, "collectionId": collection, "revision": revision, "snapshotId": text(manifest["setId"]), "baseId": text(manifest["baseId"]), "deletions": number(manifest["deletionHints"]), "complete": complete}); e != nil {
 			return e
+		}
+		if text(fresh["apply_mode"]) == "auto" {
+			return s.setImportState(ctx, tx, id, "QUEUED", "APPLYING", nil)
 		}
 		return s.setImportState(ctx, tx, id, "PREVIEW", "PREVIEW", nil)
 	})
@@ -1048,7 +1063,7 @@ func (s *Service) rebindSource(c *gin.Context) {
 		if e != nil {
 			return e
 		}
-		args := map[string]any{"id": id, "sourceId": source.ID, "binding": hash(source.Location), "now": now()}
+		args := map[string]any{"id": id, "sourceId": source.ID, "binding": hash(source.Location), "applyMode": "preview", "now": now()}
 		if _, e = s.exec(ctx, tx, "workflow-insert", args); e != nil {
 			return e
 		}

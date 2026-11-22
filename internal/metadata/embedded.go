@@ -118,9 +118,14 @@ func (s *Service) summary(ctx context.Context, db store.DBTX, id string) (map[st
 	if e != nil {
 		return nil, e
 	}
+	processing, e := s.row(ctx, db, "workflow-processing", args)
+	if e != nil {
+		return nil, e
+	}
 	emptySince, e := time.Parse(time.RFC3339Nano, text(cfg["empty_since"]))
 	canConfirm := e == nil && number(cfg["empty_scans"]) >= 2 && time.Since(emptySince) >= 30*time.Minute
 	out := map[string]any{"enabled": boolean(cfg["enabled"]), "paused": boolean(cfg["paused"]), "accessGroup": cfg["access_group"], "privateOrigins": stringsFromJSON(cfg["private_origins"]), "blockedUntil": cfg["blocked_until"], "blockedReason": cfg["blocked_reason"], "emptyScans": number(cfg["empty_scans"]), "emptySince": cfg["empty_since"], "canConfirmEmpty": canConfirm, "counts": states, "presence": presence, "budget": budget, "nodeStatus": "NOT_CHECKED", "remoteReady": false, "nodeMessage": "等待执行时检查计算节点能力", "files": files, "quality": quality}
+	out["importProcessing"] = number(processing["processing"]) != 0
 	s.hookMu.RLock()
 	for k, v := range s.remoteState {
 		out[k] = v
