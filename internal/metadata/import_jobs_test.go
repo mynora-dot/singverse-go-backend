@@ -51,13 +51,16 @@ func importStep(t *testing.T, f *fixture, source, id, want string) map[string]an
 	}
 	return job
 }
-func applyWorkflow(t *testing.T, f *fixture, source string, data []byte) map[string]any {
+func applyWorkflow(t *testing.T, f *fixture, source string, data []byte, wantState string) map[string]any {
 	t.Helper()
 	job := uploadWorkflow(t, f, source, data)
 	id := text(job["id"])
 	importStep(t, f, source, id, "PREVIEW")
 	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+id+"/apply", nil, 200)
-	return importStep(t, f, source, id, "VERIFYING")
+	if wantState == "SUCCEEDED" {
+		importStep(t, f, source, id, "VERIFYING")
+	}
+	return importStep(t, f, source, id, wantState)
 }
 func TestWorkflowMergesExistingUpdatesAndProtectsLocalEdits(t *testing.T) {
 	exerciseWorkflowMerge(t, setup(t))
@@ -82,7 +85,7 @@ func exerciseWorkflowMerge(t *testing.T, f *fixture) {
 	first := entry("目录/歌曲 空格.mkv", nil)
 	first["metadata"].(map[string]any)["tags"] = map[string]any{"title": "共享歌名", "artists": []any{"共享歌手"}, "album": "首版专辑"}
 	data := workflowPackage(t, collection, 1, first)
-	job := applyWorkflow(t, f, source, data)
+	job := applyWorkflow(t, f, source, data, "SUCCEEDED")
 	if number(job["addedCount"]) != 0 || number(job["updatedCount"]) != 1 {
 		t.Fatal(job)
 	}
@@ -94,13 +97,12 @@ func exerciseWorkflowMerge(t *testing.T, f *fixture) {
 	if detail["state"] != "IMPORTED" {
 		t.Fatal(detail)
 	}
-	// Cancellation preserves the committed data and permits a newer update.
-	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+text(job["id"])+"/cancel", nil, 200)
+	// A completed check with missing files still permits a metadata update.
 	review := request(t, f.router, "GET", "/api/v1/metadata/songs/"+songID+"/review", nil, 200)
 	request(t, f.router, "POST", "/api/v1/metadata/songs/"+songID+"/review/apply", ReviewApply{RequestID: uuid(), Fingerprint: text(review["fingerprint"]), Version: text(review["version"]), Fields: []string{"title"}, Edits: map[string]any{"title": "我的订正"}}, 200)
 	second := entry("目录/歌曲 空格.mkv", nil)
 	second["metadata"].(map[string]any)["tags"] = map[string]any{"title": "共享新歌名", "artists": []any{"共享新歌手"}, "album": ""}
-	job = applyWorkflow(t, f, source, workflowPackage(t, collection, 2, second))
+	job = applyWorkflow(t, f, source, workflowPackage(t, collection, 2, second), "SUCCEEDED")
 	if number(job["preservedCount"]) != 1 {
 		t.Fatal(job)
 	}
@@ -116,21 +118,18 @@ func exerciseWorkflowMerge(t *testing.T, f *fixture) {
 	if len(array(diff["items"])) != 1 || number(diff["nextCursor"]) != 1 {
 		t.Fatal(diff)
 	}
-	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+text(job["id"])+"/cancel", nil, 200)
-	job = applyWorkflow(t, f, source, workflowPackage(t, collection, 2, second))
+	job = applyWorkflow(t, f, source, workflowPackage(t, collection, 2, second), "SUCCEEDED")
 	if number(job["addedCount"]) != 0 {
 		t.Fatal("duplicate song", job)
 	}
-	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+text(job["id"])+"/cancel", nil, 200)
 	blank := entry("目录/歌曲 空格.mkv", nil)
 	blank["metadata"].(map[string]any)["tags"] = map[string]any{"title": " \t ", "artists": []any{" ", ""}}
 	blank["metadata"].(map[string]any)["technical"] = map[string]any{"video": map[string]any{"codec": "hevc"}}
-	job = applyWorkflow(t, f, source, workflowPackage(t, collection, 3, blank))
+	job = applyWorkflow(t, f, source, workflowPackage(t, collection, 3, blank), "SUCCEEDED")
 	song, err = f.s.song(ctx, f.db, songID)
 	if err != nil || text(array(current(song)["artists"])[0]) != "共享新歌手" || current(song)["durationMs"] != nil || number(path(song, "metadata", "media", "durationMs")) != 123500 || path(song, "metadata", "media", "observation", "duration") != nil {
 		t.Fatal("blank tags or atomic media observation violates ownership", song, err)
 	}
-	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+text(job["id"])+"/cancel", nil, 200)
 	old := uploadWorkflow(t, f, source, data)
 	importStep(t, f, source, text(old["id"]), "FAILED")
 	songs := request(t, f.router, "GET", "/api/v1/media-sources/"+source+"/songs", nil, 200)
@@ -156,6 +155,9 @@ func exerciseWorkflowBinding(t *testing.T, f *fixture) {
 	relative := "华语/歌 手/歌 曲.mkv"
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PROPFIND" {
+			if r.Header.Get("Depth") != "1" {
+				t.Error("expected Depth: 1 for directory verification")
+			}
 			propfinds.Add(1)
 			w.WriteHeader(int(status.Load()))
 			if status.Load() != 207 {
@@ -180,6 +182,12 @@ func exerciseWorkflowBinding(t *testing.T, f *fixture) {
 	defer remote.Close()
 	src := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"name": "自己的曲库", "type": "WEBDAV", "location": remote.URL + root}, 201)
 	source := text(src["id"])
+	embedded := "/api/v1/media-sources/" + source + "/embedded-metadata"
+	request(t, f.router, "PUT", embedded, map[string]any{"enabled": true, "accessGroup": "existing-source"}, 200)
+	f.s.SetRemoteExtractor(func(context.Context, map[string]any) (map[string]any, error) {
+		t.Error("package import scheduled a remote media read")
+		return nil, fmt.Errorf("unexpected content extraction")
+	})
 	item := entry("旧目录/"+relative, 6)
 	job := uploadWorkflow(t, f, source, workflowPackage(t, uuid(), 1, item))
 	id := text(job["id"])
@@ -194,7 +202,23 @@ func exerciseWorkflowBinding(t *testing.T, f *fixture) {
 		t.Fatal("preview accessed media")
 	}
 	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+id+"/apply", nil, 200)
-	importStep(t, f, source, id, "VERIFYING")
+	job = importStep(t, f, source, id, "VERIFYING")
+	if number(job["verifiedCount"]) != 0 || job["inputState"] != "RELEASED" {
+		t.Fatal("directory verification should start after metadata is saved", job)
+	}
+	if err := f.s.ProcessFiles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.RunRemoteNext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if propfinds.Load() != 0 || gets.Load() != 0 {
+		t.Fatal("offline import accessed the receiver's media", propfinds.Load(), gets.Load())
+	}
+	config := request(t, f.router, "GET", embedded, nil, 200)
+	if config["enabled"] != true || config["accessGroup"] != "existing-source" {
+		t.Fatal("import changed the existing source configuration", config)
+	}
 	var songID string
 	if err = f.db.Get(&songID, "SELECT id FROM media_song WHERE source_id=?", source); err != nil {
 		t.Fatal(err)
@@ -205,7 +229,7 @@ func exerciseWorkflowBinding(t *testing.T, f *fixture) {
 	}
 	status.Store(401)
 	job = importStep(t, f, source, id, "SUCCEEDED")
-	if number(job["unreachableCount"]) != 1 || number(job["missingCount"]) != 0 {
+	if number(job["unreachableCount"]) != 1 || number(job["missingCount"]) != 0 || propfinds.Load() != 1 {
 		t.Fatal(job)
 	}
 	if gets.Load() != 0 {
@@ -305,6 +329,10 @@ func TestWorkflowRejectsMissingDeltaBaselineAndResumesChunks(t *testing.T) {
 	if err != nil || number(stored["processedCount"]) != 201 || number(stored["addedCount"]) != 201 || text(stored["state"]) != "VERIFYING" || stored["inputState"] != "RELEASED" {
 		t.Fatal(stored, err)
 	}
+	verified := importStep(t, f, source, id, "SUCCEEDED")
+	if number(verified["verifiedCount"]) != 201 {
+		t.Fatal(verified)
+	}
 	var songs int
 	if err = f.db.Get(&songs, "SELECT COUNT(*) FROM media_song WHERE source_id=?", source); err != nil || songs != 201 {
 		t.Fatal(songs, err)
@@ -319,8 +347,7 @@ func TestWorkflowIndividualPartDoesNotEstablishDeltaBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job := applyWorkflow(t, f, source, part)
-	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+text(job["id"])+"/cancel", nil, 200)
+	job := applyWorkflow(t, f, source, part, "SUCCEEDED")
 	var baselines int
 	if err = f.db.Get(&baselines, "SELECT COUNT(*) FROM media_shared_baseline WHERE source_id=?", source); err != nil || baselines != 0 {
 		t.Fatal("individual part established a complete baseline", baselines, err)
@@ -374,7 +401,7 @@ func exerciseArchivedInformation(t *testing.T, f *fixture) {
 	t.Helper()
 	ctx := context.Background()
 	source := newDAV(t, f, "archived-information")
-	applyWorkflow(t, f, source, workflowPackage(t, uuid(), 1, entry("共享歌曲.mkv", nil)))
+	applyWorkflow(t, f, source, workflowPackage(t, uuid(), 1, entry("共享歌曲.mkv", nil)), "SUCCEEDED")
 	var sharedID string
 	if err := f.db.Get(&sharedID, "SELECT id FROM media_song WHERE source_id=?", source); err != nil {
 		t.Fatal(err)
@@ -454,7 +481,14 @@ func TestSourceSaveCompatibilityAndDurableAutomaticIngest(t *testing.T) {
 	if err := f.db.Get(&count, "SELECT COUNT(*) FROM media_ingest_request WHERE source_id=?", source["id"]); err != nil || count != 1 {
 		t.Fatal(count, err)
 	}
-	dav := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"name": "导入专用", "type": "WEBDAV", "location": "https://my.example.invalid/dav/", "startScan": false, "autoExtractEmbedded": false, "scanEnabled": false}, 201)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PROPFIND" || r.Header.Get("Depth") != "1" || r.URL.Path != "/dav/华语/" {
+			t.Errorf("unexpected import request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer remote.Close()
+	dav := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"name": "导入专用", "type": "WEBDAV", "location": remote.URL + "/dav/", "startScan": false, "autoExtractEmbedded": false, "scanEnabled": false}, 201)
 	davID := text(dav["id"])
 	if dav["initialTaskId"] != nil || dav["nextScanAt"] != nil || dav["scanEnabled"] != false {
 		t.Fatal("package creation unexpectedly scheduled a scan", dav)
@@ -468,8 +502,8 @@ func TestSourceSaveCompatibilityAndDurableAutomaticIngest(t *testing.T) {
 		extractions.Add(1)
 		return nil, fmt.Errorf("imported metadata must not trigger content extraction")
 	})
-	imported := applyWorkflow(t, f, davID, workflowPackage(t, uuid(), 1, entry("华语/歌 曲.mkv", nil)))
-	if number(imported["addedCount"]) != 1 {
+	imported := applyWorkflow(t, f, davID, workflowPackage(t, uuid(), 1, entry("华语/歌 曲.mkv", nil)), "SUCCEEDED")
+	if number(imported["addedCount"]) != 1 || number(imported["missingCount"]) != 1 {
 		t.Fatal(imported)
 	}
 	f.lib.RunIngest(context.Background())
@@ -537,5 +571,122 @@ func TestSharedFieldsKeepIndependentSeriesOwnershipAndBlankValues(t *testing.T) 
 	}
 	if _, err = os.Stat(filepath.Join(f.cfg.MetadataPath, text(snapshot["lyricsRef"])+".lyrics.json")); err != nil {
 		t.Fatal("lyrics were not persisted", err)
+	}
+}
+
+func TestHistoricalVerificationLeavesChangedSizesPending(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	var source string
+	collection := uuid()
+	duringListing := workflowPackage(t, collection, 3, entry("current/race.mkv", 20))
+	var requests atomic.Int64
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != "PROPFIND" || r.URL.Path != "/dav/current/" {
+			t.Errorf("unexpected request for superseded media %s %s", r.Method, r.URL.Path)
+		}
+		if _, err := f.s.ImportPart(ctx, source, duringListing); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(207)
+		fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:">`+verificationSelfXML(r.URL.Path))
+		for _, name := range []string{"race.mkv", "keep.mkv"} {
+			fmt.Fprintf(w, `<d:response><d:href>/dav/current/%s</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>10</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`, name)
+		}
+		fmt.Fprint(w, "</d:multistatus>")
+	}))
+	defer remote.Close()
+	src := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"type": "WEBDAV", "name": "old receipts", "location": remote.URL + "/dav/"}, 201)
+	source = text(src["id"])
+	old := applyWorkflow(t, f, source, workflowPackage(t, collection, 1, entry("old/size.mkv", 10), entry("current/race.mkv", 10), entry("current/keep.mkv", 10)), "VERIFYING")
+	// Jobs that completed offline before automatic verification keep their
+	// explicit retry entry point, even after a newer snapshot changes a file.
+	if _, err := f.db.Exec("UPDATE media_import_job SET state='SUCCEEDED',phase='IMPORTED' WHERE id=?", old["id"]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.ImportPart(ctx, source, workflowPackage(t, collection, 2, entry("old/size.mkv", 20))); err != nil {
+		t.Fatal(err)
+	}
+	importStep(t, f, source, text(old["id"]), "SUCCEEDED")
+	base := "/api/v1/media-sources/" + source + "/embedded-metadata/import-jobs/" + text(old["id"])
+	request(t, f.router, "POST", base+"/retry", nil, 200)
+	result := importStep(t, f, source, text(old["id"]), "SUCCEEDED")
+	if requests.Load() != 1 || number(result["verifiedCount"]) != 3 || number(result["presentCount"]) != 1 {
+		t.Fatal(result, requests.Load())
+	}
+	diff := request(t, f.router, "GET", base+"/differences", nil, 200)
+	if len(array(diff["items"])) != 2 {
+		t.Fatal(diff)
+	}
+	for _, raw := range array(diff["items"]) {
+		item := raw.(map[string]any)
+		if item["verification"] != "SUPERSEDED" || text(item["verificationError"]) == "" {
+			t.Fatal(item)
+		}
+		var verification string
+		var expected int64
+		if err := f.db.QueryRow("SELECT verification,expected_size FROM media_shared_song WHERE song_id=?", item["songId"]).Scan(&verification, &expected); err != nil || verification != "PENDING" || expected != 20 {
+			t.Fatal("old receipt updated the current target", verification, expected, err)
+		}
+		locations, err := f.lib.Formal().Locations(ctx, f.db, text(item["songId"]))
+		if err != nil || len(locations) != 1 || locations[0].State != "PENDING" {
+			t.Fatal(locations, err)
+		}
+	}
+}
+
+func TestV4RemapDropsOldVerification(t *testing.T) {
+	sender := setup(t)
+	source, media := sender.local(t, "song.mkv")
+	export := exportJob(t, sender, source, nil)
+	w := httptest.NewRecorder()
+	sender.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+text(export["id"])+"/download", nil))
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	f := setup(t)
+	var calls atomic.Int64
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		size := 5
+		if r.URL.Path == "/dav/moved/" {
+			size = 99
+		}
+		w.WriteHeader(207)
+		fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:">%s<d:response><d:href>%ssong.mkv</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>%d</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, verificationSelfXML(r.URL.Path), r.URL.Path, size)
+	}))
+	defer remote.Close()
+	src := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"type": "WEBDAV", "name": "remap", "location": remote.URL + "/dav/"}, 201)
+	target := text(src["id"])
+	old := applyWorkflow(t, f, target, w.Body.Bytes(), "SUCCEEDED")
+	base := "/api/v1/media-sources/" + target + "/embedded-metadata/import-jobs/"
+	if number(old["presentCount"]) != 1 {
+		t.Fatal(old)
+	}
+
+	job := uploadWorkflow(t, f, target, w.Body.Bytes())
+	id := text(job["id"])
+	importStep(t, f, target, id, "PREVIEW")
+	request(t, f.router, "PUT", base+id+"/mapping", map[string]any{"addPrefix": "moved"}, 200)
+	request(t, f.router, "POST", base+id+"/apply", nil, 200)
+	importStep(t, f, target, id, "VERIFYING")
+	moved := importStep(t, f, target, id, "SUCCEEDED")
+	if number(moved["mismatchCount"]) != 1 {
+		t.Fatal(moved)
+	}
+	request(t, f.router, "POST", base+text(old["id"])+"/retry", nil, 200)
+	old = importStep(t, f, target, text(old["id"]), "SUCCEEDED")
+	if calls.Load() != 2 || number(old["presentCount"]) != 0 || array(old["samples"])[0].(map[string]any)["verification"] != "SUPERSEDED" {
+		t.Fatal(old, calls.Load())
+	}
+	ctx := context.Background()
+	song, err := f.s.song(ctx, f.db, media[0])
+	if err != nil || song["mediaVerification"] != "MISMATCH" || song["relativePath"] != "moved/song.mkv" {
+		t.Fatal(song, err)
+	}
+	loc, err := f.lib.Formal().Locations(ctx, f.db, media[0])
+	if err != nil || len(loc) != 1 || loc[0].RelativePath != "moved/song.mkv" || loc[0].State != "MISMATCH" {
+		t.Fatal(loc, err)
 	}
 }

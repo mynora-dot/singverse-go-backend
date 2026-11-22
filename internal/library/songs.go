@@ -192,18 +192,22 @@ func (s *Service) songsHTTP(c *gin.Context, sourceOnly bool) {
 	c.JSON(200, out)
 }
 
-// SongIdentity reads the public projection and frozen metadata identity together.
-func (s *Service) SongIdentity(ctx context.Context, db store.DBTX, id string) (map[string]any, string, error) {
+// SongIdentity reads the public projection, frozen file identity and version snapshot together.
+func (s *Service) SongIdentity(ctx context.Context, db store.DBTX, id string) (map[string]any, string, string, error) {
 	if db == nil {
 		db = s.db
 	}
 	song, e := s.readSong(ctx, db, id)
 	if e != nil {
-		return nil, "", e
+		return nil, "", "", e
 	}
 	out := map[string]any{}
 	e = decodeSongMap(encode(song), &out)
-	return out, song.contentFingerprint, e
+	variantVersion := ""
+	if song.formalVariant != nil {
+		variantVersion = hash(*song.formalVariant)
+	}
+	return out, song.contentFingerprint, variantVersion, e
 }
 
 // LibraryIdentities resolves all frozen metadata identities with one query.

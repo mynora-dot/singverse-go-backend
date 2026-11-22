@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/mynora-dot/singverse-go-backend/internal/metastandard"
@@ -13,6 +15,155 @@ func packageAudioDocument() metastandard.Document {
 		Fields: map[string]any{"audioRoles": metastandard.AudioRoles("stream:2", "stream:1"), "durationMs": 120250, "observation": map[string]any{"streams": audioStreams(2)}},
 		States: map[string]metastandard.FieldState{"audioRoles": {Origin: metastandard.Origin{Kind: "SHARED"}, Decision: "AUTO", Status: "PRESENT"}},
 	}
+}
+
+func TestImportedTrackTitlesAreAdminHintsUntilPathVerification(t *testing.T) {
+	f, ctx := executionFixture(t, ""), t.Context()
+	if _, err := f.db.Exec("UPDATE media_source SET source_type='WEBDAV' WHERE id=?", f.source); err != nil {
+		t.Fatal(err)
+	}
+	song := mustSong(t, f)
+	streams := []any{
+		map[string]any{"index": 1, "id": "0x101", "codec_type": "audio", "tags": map[string]any{"title": "伴奏"}},
+		map[string]any{"index": 2, "id": "0x102", "codec_type": "audio", "tags": map[string]any{"title": "原唱"}},
+	}
+	collection := uuid()
+	err := store.WithinTx(ctx, f.db, func(tx store.DBTX) error {
+		fields := map[string]any{"observation": map[string]any{"durationMs": 120250, "streams": streams}}
+		if _, _, e := f.library.Formal().Observe(ctx, tx, f.song, metastore.Evidence{Origin: metastandard.Origin{Kind: "SHARED", CollectionID: collection}, Revision: "1", Fields: fields}); e != nil {
+			return e
+		}
+		if _, e := tx.ExecContext(ctx, "INSERT INTO media_shared_song(song_id,source_id,collection_id,revision,snapshot_json,updated_at) VALUES(?,?,?,1,'{}','now')", f.song, f.source, collection); e != nil {
+			return e
+		}
+		return f.library.Formal().Location(ctx, tx, f.song, f.source, str(song, "relative_path"), "", "PENDING", nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string) map[string]any {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Authorization", "Bearer tv-test")
+		response := httptest.NewRecorder()
+		f.router.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatal(path, response.Code, response.Body.String())
+		}
+		return decoded(response.Body.String())
+	}
+	detail := get("/api/v1/media-songs/" + f.song + "/audio-roles")
+	rows := array(get("/api/v1/audio-processing/songs?songId=" + f.song)["items"])
+	if len(rows) != 1 {
+		t.Fatal(rows)
+	}
+	for _, view := range []map[string]any{detail, obj(obj(rows[0])["audio"])} {
+		hint := obj(view["packageRoleHint"])
+		if str(view, "state") != "UNKNOWN" || view["originalId"] != nil || view["backingId"] != nil ||
+			str(hint, "originalId") != "stream:2" || str(hint, "backingId") != "stream:1" ||
+			str(hint, "basis") != "STREAM_TITLES" || str(hint, "verification") != "PENDING" {
+			t.Fatal(view)
+		}
+	}
+	portable, err := f.s.PortableAudio(ctx, f.song)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range []map[string]any{portable, get("/api/v1/tv/audio-roles/songs/" + f.song), get("/api/v1/party/audio-roles/songs/" + f.song)} {
+		if view["packageRoleHint"] != nil || view["originalId"] != nil || view["backingId"] != nil || str(view, "state") != "UNKNOWN" {
+			t.Fatal("public or portable view exposed an unverified mapping", view)
+		}
+	}
+	receipt := packageAudioReceipt(song, "PATH_ONLY")
+	err = store.WithinTx(ctx, f.db, func(tx store.DBTX) error {
+		if _, e := tx.ExecContext(ctx, "UPDATE media_shared_song SET verification='PRESENT' WHERE song_id=?", f.song); e != nil {
+			return e
+		}
+		return f.library.Formal().Location(ctx, tx, f.song, f.source, str(song, "relative_path"), "", "PRESENT", decoded(receipt["location_observation"]))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := get("/api/v1/tv/audio-roles/songs/" + f.song)
+	if str(verified, "state") != "CONFIRMED" || str(verified, "originalId") != "stream:2" || str(verified, "backingId") != "stream:1" ||
+		str(verified, "origin") != "SHARED" || boolv(verified["receiverProbed"]) || verified["packageRoleHint"] != nil {
+		t.Fatal(verified)
+	}
+	var count int
+	if err = f.db.Get(&count, "SELECT COUNT(*) FROM media_audio_job"); err != nil || count != 0 {
+		t.Fatal("reading package metadata scheduled a job", count, err)
+	}
+}
+
+func TestLegacyPackageRoleHintUsesCurrentFingerprintAndLocalDecisions(t *testing.T) {
+	song := map[string]any{"id": uuid(), "relative_path": "歌曲.mkv", "source_id": uuid(), "file_size": 512}
+	claim := map[string]any{"state": "CONFIRMED", "originalId": "stream:2", "backingId": "stream:1", "duration": 120.25, "streams": audioStreams(2)}
+	receipt := packageAudioReceipt(song, "PATH_AND_SIZE")
+	receipt["shared_verification"] = "PENDING"
+	receipt["claim_json"] = encoded(map[string]any{"claim": claim, "fingerprint": contentFingerprint(song)})
+	doc := metastandard.Document{Fields: map[string]any{}, States: map[string]metastandard.FieldState{}}
+	view := map[string]any{"state": "UNKNOWN"}
+	if hint := projectAudioDocument(song, doc, receipt, view); str(hint, "basis") != "DECLARED" || str(hint, "originalId") != "stream:2" || view["originalId"] != nil {
+		t.Fatal(hint, view)
+	}
+	for _, decision := range []string{"CLEAR", "SET"} {
+		doc.States["audioRoles"] = metastandard.FieldState{Decision: decision}
+		if hint := projectAudioDocument(song, doc, receipt, view); hint != nil {
+			t.Fatal("overrode local decision", decision, hint)
+		}
+	}
+	delete(doc.States, "audioRoles")
+	receipt["shared_verification"] = "PRESENT"
+	if hint := projectAudioDocument(song, doc, receipt, view); hint != nil || str(view, "state") != "CONFIRMED" || boolv(view["receiverProbed"]) {
+		t.Fatal(hint, view)
+	}
+	song["file_size"] = 513
+	view = map[string]any{"state": "UNKNOWN"}
+	if hint := projectAudioDocument(song, doc, receipt, view); hint != nil || view["originalId"] != nil {
+		t.Fatal("stale claim was reused", hint, view)
+	}
+}
+
+func TestPackageHintDistinguishesIncompleteEvidenceFromChangedBinding(t *testing.T) {
+	song := map[string]any{"id": uuid(), "source_id": uuid(), "relative_path": "歌曲.mkv", "location": "https://example.test/dav", "username": "original"}
+	doc, receipt := packageAudioDocument(), packageAudioReceipt(song, "PATH_ONLY")
+	delete(doc.Fields, "durationMs")
+	view := map[string]any{"state": "UNKNOWN"}
+	hint := projectAudioDocument(song, doc, receipt, view)
+	if str(hint, "verification") != "PRESENT" || str(hint, "basis") != "DECLARED" || view["originalId"] != nil {
+		t.Fatal(hint, view)
+	}
+	doc.Fields["durationMs"] = 120250
+	song["username"] = "different"
+	hint = projectAudioDocument(song, doc, receipt, view)
+	if str(hint, "verification") != "PENDING" || view["originalId"] != nil || view["reuseBasis"] != nil {
+		t.Fatal("hint overstated verification", hint, view)
+	}
+}
+
+func TestAdoptedLegacyAudioRevisionUpdatesImportedClaim(t *testing.T) {
+	f, ctx := executionFixture(t, ""), t.Context()
+	first := map[string]any{"state": "CONFIRMED", "originalId": "stream:1", "backingId": "stream:2"}
+	next := map[string]any{"state": "CONFIRMED", "originalId": "stream:2", "backingId": "stream:1"}
+	check := func(original string) {
+		t.Helper()
+		row, err := f.s.one(ctx, f.db, "audio-claim", map[string]any{"song": f.song})
+		envelope := decoded(row["claim_json"])
+		if err != nil || str(obj(envelope["claim"]), "originalId") != original || str(envelope, "fingerprint") != contentFingerprint(mustSong(t, f)) {
+			t.Fatal(envelope, err)
+		}
+	}
+	if err := f.s.ImportAudioClaim(ctx, f.song, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.ImportAudioClaim(ctx, f.song, next); err != nil {
+		t.Fatal(err)
+	}
+	check("stream:1")
+	if err := store.WithinTx(ctx, f.db, func(tx store.DBTX) error { return f.s.ImportAudioClaimWith(ctx, tx, f.song, next) }); err != nil {
+		t.Fatal(err)
+	}
+	check("stream:2")
 }
 
 func packageAudioReceipt(song map[string]any, level string) map[string]any {

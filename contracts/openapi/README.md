@@ -61,6 +61,8 @@
 
 单曲元数据已使用独立双栏审核工作台，支持字段编辑、受管 JPEG/PNG 上传、平台封面搜索及统一确认应用；批次候选审核复用同一工作台，确认后同步更新批次明细。新增接口、资源备份、幂等与版本校验规则见[单曲审核](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/docs/single-song-review.md)。
 
+管理员在 `POST /api/v1/metadata/songs/{songId}/candidates/{candidateId}/lyrics` 获取选中录音的歌词预览。单曲及批次审核在 `fields` 中提交 `lyrics` 后，将该预览保存到当前歌曲版本，保留 LRC 时间轴。`review` 的 `values.lyrics` 返回当前版本已入库的歌词。
+
 批量工作台已统一整体进度：total/completed 均包含跳过项，新批次持久化跳过明细，旧批次仅汇总并提示。新增批次内搜索/排序、可信度审核提示及按状态操作，自动写入和限流规则不变。接口兼容说明及统计定义见[批量工作台](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/docs/batch-metadata-workbench.md)。
 
 歌曲分类契约新增 `/api/v1/classification` 及 `Classification*` schemas；媒体歌曲响应包含分类状态，查询支持 `tagIds`（维度内 OR、维度间 AND）及 `unclassified`。所有接口继续要求管理员会话，写入使用 CSRF；没有新增访客公开分类接口。操作语义见[分类说明](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/docs/song-classification.md)。
@@ -240,7 +242,7 @@ Nginx 为上述两个批量写入接口单独允许 128 KiB 请求，以容纳 1
 
 来源创建可选 `startScan` 和 WebDAV 的 `autoExtractEmbedded`；省略时保持旧客户端只保存的行为。后台导入使用 `embedded-metadata/import-jobs` 上传、预览、映射、确认、查询、取消与重试，返回 lower camelCase 的 `MediaImportJob`；上传完成后由服务端续跑。`rebind` 保留歌曲身份与本地订正，单独重新核验媒体。默认共享 v4 使用稳定系列、版本与正式对象，兼容 v2/v3 导入；默认完整 ZIP，增量要求匹配基线，旧版本拒绝，删除提示不自动应用。详细状态、路径规则、限额及兼容边界见[媒体库说明](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/docs/media-library.md#媒体入库资料合并与分享2026-11-10)。
 
-导入任务新增可选 `inputState`（`RETAINED` / `PENDING` / `RELEASED`）、`inputCleanupError`、`inputCleanupAfter`，单独表示上传 ZIP 的保留与回收；资料条目、附件引用和基线全部持久化后即可回收 ZIP，核验、取消后恢复和显式重试读取持久化记录。清理失败延后自动重试，不改变导入结果或重复应用资料。每轮核验只列举每个父目录一次，失败保存到条目，显式重试仅重查失败项；相同 URL 更换账号时全部重新核验。`pathOnlyCount` 是 `presentCount` 中未校验大小的数量，样本可返回 `verification` 与 `verificationLevel`（`PATH_ONLY` / `PATH_AND_SIZE` / `null`），避免将未知大小当作大小一致。
+导入任务新增可选 `inputState`（`RETAINED` / `PENDING` / `RELEASED`）、`inputCleanupError`、`inputCleanupAfter`，单独表示上传 ZIP 的保留与回收；资料条目、附件引用和基线全部持久化后即可回收 ZIP，核验、取消后恢复和显式重试读取持久化记录。清理失败延后自动重试，不改变导入结果或重复应用资料。确认 WebDAV 导入后先离线保存元数据与附件，再自动进入 `VERIFYING`。后台根据父目录清单核验相对路径及已知大小，记录条目结果后任务返回 `SUCCEEDED`。旧版已停在 `SUCCEEDED/IMPORTED` 的任务仍可通过 `POST .../retry` 发起首次核验。每轮核验只列举每个父目录一次，失败保存到条目，显式重试仅重查失败项；相同 URL 更换账号时全部重新核验。`pathOnlyCount` 是 `presentCount` 中未校验大小的数量，样本可返回 `verification` 与 `verificationLevel`（`PATH_ONLY` / `PATH_AND_SIZE` / `null`），避免将未知大小当作大小一致。
 
 
 ## Metadata Schema 1.0 与正式资料接口（2026-11-11）
@@ -258,7 +260,9 @@ Nginx 为上述两个批量写入接口单独允许 128 KiB 请求，以容纳 1
 
 公开只读版本、APK与二维码接口由 Go 提供，platform 仅 mobile/tv，完整字段与权限见 OpenAPI 路径及 [更新契约](../client-updates.md)。运行仅提供镜像内包，不访问 GitHub；旧 TV current/APK 接口保留兼容。
 
-音轨资料的接收端复用：完整资料包的源流映射在接收方精确相对路径及可得大小核验通过后可直接采用，`origin=SHARED`、`reuseBasis=PATH_ONLY|PATH_AND_SIZE`、`receiverProbed=false`；这不表示接收端已探测或完成内容摘要验证。根地址或账号绑定变化、路径缺失、大小冲突使采用路径失效。本机 SET/CLEAR 始终优先。
+管理员音轨详情的响应和音频处理列表的 `items[].audio` 可返回 `packageRoleHint`，包含包内原唱、伴奏源流编号、识别依据和路径核验状态。`basis=DECLARED` 表示包内明确声明，`STREAM_TITLES` 表示两条音轨的标题明确互补。提示在离线导入后即可读取。播放使用顶层已确认的角色。本机 SET/CLEAR 优先。
+
+接收方核验相对路径和可得大小后，流清单与媒体时长完整、与已有探测相符的共享映射可直接采用，返回 `origin=SHARED`、`reuseBasis=PATH_ONLY|PATH_AND_SIZE`。仅采用资料包时 `receiverProbed=false`。根地址或账号绑定变化、路径缺失、大小冲突使采用路径失效。
 
 约定的 FLAC/MP3 等单轨歌曲无需媒体探测即可返回 `state=CONFIRMED, origin=SOURCE, originalSelection={kind:UNIQUE_AUDIO}`；此时没有 `originalId`，不得伪造流索引。选择原唱表示使用唯一/默认音频；必要探测或播放观察后才返回实测的 `originalId`。`audioRoles` 正式流映射契约仍只允许实测/资料包声明的 `stream:N`。
 

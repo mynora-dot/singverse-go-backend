@@ -132,6 +132,7 @@ func parseMigu(rows []any, limit int) []Track {
 		t := track("MIGU", id, publicText(row, "songName", "name"), names(singers, "name"), album, duration, release, aliases, miguAlbumCover(row), "UNKNOWN")
 		if t != nil {
 			t.ArtistRefs = refs(singers, "MIGU", "id")
+			t.LyricsPath = miguLyricsPath(text(row["lyricUrl"]))
 			out = append(out, *t)
 		}
 		if len(out) >= limit {

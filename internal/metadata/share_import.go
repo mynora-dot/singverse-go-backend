@@ -220,16 +220,6 @@ func (s *Service) importDocument(ctx context.Context, sourceID string, document 
 
 					return e
 				}
-				if claim, ok := snapshot["audioRoles"].(map[string]any); ok {
-					s.hookMu.RLock()
-					fn := s.audioClaim
-					s.hookMu.RUnlock()
-					if fn != nil {
-						if e = fn(ctx, tx, id, claim); e != nil {
-							return e
-						}
-					}
-				}
 				if added || outcome == "UPDATED" {
 					imported++
 				} else {

@@ -155,10 +155,6 @@ func (s *Service) scanLocal(parent context.Context, sourceID string) (result Sca
 			return bad("歌曲文件不可读")
 		}
 		file.Close()
-		parsed, err := Parse(entry.Name(), rules)
-		if err != nil {
-			return err
-		}
 		id, e := s.indexIdentity(ctx, s.db, sourceID, relative)
 		if e != nil {
 			return e
@@ -179,14 +175,7 @@ func (s *Service) scanLocal(parent context.Context, sourceID string) (result Sca
 			}
 		}
 		localKeys[id] = key
-		song := Song{ID: id, SourceID: sourceID, SourceName: src.Name, RelativePath: relative, FileSize: ptr(info.Size()), ModifiedAt: ptr(info.ModTime().UTC().Format(time.RFC3339Nano)), ScannedAt: result.ScannedAt, ParserProfileID: p.ID, ParserRevision: st.revision, Result: parsed.Result, pathHash: hash(relative)}
-		if parsed.SelectedRule != nil {
-			song.SelectedRuleID = &parsed.SelectedRule.ID
-			result.MatchedSongs++
-		}
-		if song.Result.NeedsReview {
-			result.NeedsReviewSongs++
-		}
+		song := Song{ID: id, SourceID: sourceID, SourceName: src.Name, RelativePath: relative, FileSize: ptr(info.Size()), ModifiedAt: ptr(info.ModTime().UTC().Format(time.RFC3339Nano)), ScannedAt: result.ScannedAt, ParserProfileID: p.ID, ParserRevision: st.revision, pathHash: hash(relative)}
 		songs = append(songs, song)
 		return nil
 	})
@@ -197,24 +186,25 @@ func (s *Service) scanLocal(parent context.Context, sourceID string) (result Sca
 	s.hookMu.RLock()
 	readTags := s.localTagReader
 	s.hookMu.RUnlock()
-	if readTags != nil {
-		total := int64(len(songs))
-		for i := range songs {
-			if e = ctx.Err(); e != nil {
-				return result, bad("读取文件标签超出单次扫描范围，原歌曲索引保留")
-			}
-			tags, readErr := readTags(ctx, sourceID, songs[i].RelativePath)
-			file := filepath.Join(src.Location, filepath.FromSlash(songs[i].RelativePath))
+	total := int64(len(songs))
+	for i := range songs {
+		if e = ctx.Err(); e != nil {
+			return result, bad("扫描已取消或超过 30 秒，原歌曲数据已保留")
+		}
+		song := &songs[i]
+		filename := filepath.Base(song.RelativePath)
+		var tags map[string]any
+		if readTags != nil {
+			observed, readErr := readTags(ctx, sourceID, song.RelativePath)
+			file := filepath.Join(src.Location, filepath.FromSlash(song.RelativePath))
 			after, statErr := os.Lstat(file)
 			real, realErr := filepath.EvalSymlinks(file)
-			if statErr != nil || realErr != nil || !after.Mode().IsRegular() || !within(src.Location, real) || songs[i].FileSize == nil || after.Size() != *songs[i].FileSize || songs[i].ModifiedAt == nil || after.ModTime().UTC().Format(time.RFC3339Nano) != *songs[i].ModifiedAt {
+			if statErr != nil || realErr != nil || !after.Mode().IsRegular() || !within(src.Location, real) || song.FileSize == nil || after.Size() != *song.FileSize || song.ModifiedAt == nil || after.ModTime().UTC().Format(time.RFC3339Nano) != *song.ModifiedAt {
 				return result, conflict("扫描期间文件已变化，原歌曲索引保留，请重试")
 			}
-			if readErr == nil && validEmbeddedTags(tags) {
-				songs[i].embedded = ptr(encode(tags))
-				if songs[i].Result.NeedsReview && embeddedIdentity(tags) {
-					result.NeedsReviewSongs--
-				}
+			if readErr == nil && validEmbeddedTags(observed) {
+				tags = observed
+				song.embedded = ptr(encode(tags))
 			}
 			if progress != nil && taskID != "" {
 				done := int64(i + 1)
@@ -223,9 +213,24 @@ func (s *Service) scanLocal(parent context.Context, sourceID string) (result Sca
 				}
 			}
 		}
+		if embeddedIdentity(tags) {
+			song.Result = taggedFilenameResult(filename)
+			continue
+		}
+		parsed, err := Parse(filename, rules)
+		if err != nil {
+			return result, err
+		}
+		song.Result = parsed.Result
+		if parsed.SelectedRule != nil {
+			song.SelectedRuleID = &parsed.SelectedRule.ID
+			result.MatchedSongs++
+		}
+		if song.Result.NeedsReview {
+			result.NeedsReviewSongs++
+		}
 	}
 	if progress != nil && taskID != "" {
-		total := int64(len(songs))
 		if e = progress(ctx, taskID, "COMMITTING", int64(visited), total, &total, &total); e != nil {
 			return result, e
 		}

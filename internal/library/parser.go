@@ -501,14 +501,7 @@ func uniqueAll(a []string) []string {
 	}
 	return out
 }
-func Parse(filename string, rules []Rule) (Preview, error) {
-	if len([]rune(filename)) > 1024 {
-		return Preview{}, invalid("", -1, "filename", "文件名最多 1024 个字符")
-	}
-	compiled, err := compileRules(rules)
-	if err != nil {
-		return Preview{}, err
-	}
+func filenameParts(filename string) (string, string, *string) {
 	normalized := normalize(filename)
 	stem := normalized
 	var ext *string
@@ -518,6 +511,28 @@ func Parse(filename string, rules []Rule) (Preview, error) {
 		stem = strings.TrimSpace(normalized[:dot])
 		normalized = normalized[:dot+1] + s
 	}
+	return normalized, stem, ext
+}
+
+func taggedFilenameResult(filename string) ParseResult {
+	normalized, _, ext := filenameParts(filename)
+	return ParseResult{
+		OriginalFilename: filename, NormalizedFilename: normalized, Extension: ext,
+		Language: "UNKNOWN", VersionType: "UNKNOWN", Artists: []string{},
+		QualityTags: []string{}, UnparsedTokens: []string{}, ParseStatus: "SKIPPED", ParserRule: "NONE",
+		Diagnostics: []Diagnostic{{"EMBEDDED_IDENTITY", "文件标签已提供歌名和歌手，跳过文件名识别", 0}},
+	}
+}
+
+func Parse(filename string, rules []Rule) (Preview, error) {
+	if len([]rune(filename)) > 1024 {
+		return Preview{}, invalid("", -1, "filename", "文件名最多 1024 个字符")
+	}
+	compiled, err := compileRules(rules)
+	if err != nil {
+		return Preview{}, err
+	}
+	normalized, stem, ext := filenameParts(filename)
 	result := ParseResult{OriginalFilename: filename, NormalizedFilename: normalized, Artists: []string{}, Language: "UNKNOWN", VersionType: "UNKNOWN", Extension: ext, QualityTags: []string{}, UnparsedTokens: []string{stem}, Diagnostics: []Diagnostic{}, NeedsReview: true, ParseStatus: "FAILED", ParserRule: "NONE"}
 	out := Preview{Result: result, MatchTarget: ptr(stem), Attempts: []Attempt{}}
 	reason := ""

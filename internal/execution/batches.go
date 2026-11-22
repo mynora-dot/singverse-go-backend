@@ -186,7 +186,7 @@ func (s *Service) audioSongs(ctx context.Context, filter map[string]any, page, s
 		if total >= int64(page)*int64(size) && len(items) < size {
 			v := copyMap(row)
 			delete(v, "fingerprint")
-			status, e := s.audioStatus(ctx, str(row, "id"))
+			status, e := s.AudioStatus(ctx, str(row, "id"))
 			if e != nil {
 				return nil, e
 			}

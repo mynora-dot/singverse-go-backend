@@ -575,6 +575,8 @@ func (s *Service) Snapshot(ctx context.Context, tx store.DBTX, id string) (map[s
 	if e != nil {
 		return nil, e
 	}
+	// PortableAudio supplies the receiver's exportable status separately.
+	delete(out, "audioRoles")
 	rows, e := s.rows(ctx, tx, "dav-resource", map[string]any{"songId": id})
 	if e != nil {
 		return nil, e

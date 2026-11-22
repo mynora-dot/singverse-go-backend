@@ -36,18 +36,20 @@ type ArtistRef struct {
 	Name     string `json:"name"`
 }
 type Track struct {
-	Provider     *string     `json:"provider"`
-	ExternalID   *string     `json:"externalId"`
-	Title        *string     `json:"title"`
-	Artists      []string    `json:"artists"`
-	Album        *string     `json:"album"`
-	DurationMs   *int        `json:"durationMs"`
-	ReleaseDate  *string     `json:"releaseDate"`
-	Aliases      []string    `json:"aliases"`
-	CoverURL     *string     `json:"coverUrl"`
-	Availability string      `json:"availability"`
-	FetchedAt    string      `json:"fetchedAt"`
-	ArtistRefs   []ArtistRef `json:"artistRefs"`
+	Provider     *string        `json:"provider"`
+	ExternalID   *string        `json:"externalId"`
+	Title        *string        `json:"title"`
+	Artists      []string       `json:"artists"`
+	Album        *string        `json:"album"`
+	DurationMs   *int           `json:"durationMs"`
+	ReleaseDate  *string        `json:"releaseDate"`
+	Aliases      []string       `json:"aliases"`
+	CoverURL     *string        `json:"coverUrl"`
+	Availability string         `json:"availability"`
+	FetchedAt    string         `json:"fetchedAt"`
+	ArtistRefs   []ArtistRef    `json:"artistRefs"`
+	LyricsPath   string         `json:"lyricsPath,omitempty"` // Internal candidate reference for Migu.
+	Lyrics       map[string]any `json:"lyrics,omitempty"`     // Preview stored with the owned candidate.
 }
 type Origin struct {
 	Provider   *string `json:"provider"`
@@ -61,6 +63,7 @@ type Applied struct {
 	AppliedAt string            `json:"appliedAt"`
 	Stale     bool              `json:"stale"`
 	Origins   map[string]Origin `json:"origins"`
+	Variant   map[string]any    `json:"variant,omitempty"`
 }
 type Candidate struct {
 	ID    string  `json:"id"`
@@ -119,6 +122,7 @@ type Provider interface {
 type projectFunc func(context.Context, store.DBTX, string, string) error
 
 var allFields = []string{"title", "artists", "album", "releaseDate", "aliases", "cover", "durationMs"}
+var reviewFields = append(append([]string{}, allFields...), "lyrics")
 var providers = []string{"NETEASE", "QQ", "KUGOU", "KUWO", "QISHUI", "MIGU"}
 
 type problem struct {
@@ -254,7 +258,7 @@ func trackValues(t Track) map[string]any {
 	return map[string]any{"title": t.Title, "artists": t.Artists, "album": t.Album, "releaseDate": t.ReleaseDate, "aliases": t.Aliases, "durationMs": t.DurationMs, "cover": t.CoverURL}
 }
 func version(song map[string]any) string {
-	return hash(fingerprint(song) + ":" + encode(song["metadata"]))
+	return hash(fingerprint(song) + ":" + text(song["_variantVersion"]) + ":" + encode(song["metadata"]))
 }
 func present(v any) bool {
 	if v == nil {

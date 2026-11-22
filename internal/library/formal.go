@@ -268,26 +268,30 @@ func (s *Service) applyFormal(ctx context.Context, tx store.DBTX, media string, 
 	if e := s.SyncMetadata(ctx, tx, media); e != nil {
 		return e
 	}
-	song, _, e := s.FormalIDs(ctx, tx, media)
+	song, variant, e := s.FormalIDs(ctx, tx, media)
 	if e != nil {
 		return e
 	}
 	for field, value := range values {
 		name := field
+		entityID, kind := song, "SONG"
 		if field == "durationMs" {
 			name = "referenceDurationMs"
+		}
+		if field == "lyrics" {
+			entityID, kind = variant, "VARIANT"
 		}
 		if field == "cover" {
 			continue
 		}
-		if metastandard.Fields["SONG"][name] == "" {
+		if metastandard.Fields[kind][name] == "" {
 			continue
 		}
 		o := formalOrigin(origins[field])
 		if o.Kind != "MANUAL" && o.Kind != "UPLOAD" && o.Kind != "PLATFORM" {
 			continue
 		}
-		d, e := s.formal.Read(ctx, tx, song)
+		d, e := s.formal.Read(ctx, tx, entityID)
 		if e != nil {
 			return e
 		}
@@ -296,9 +300,9 @@ func (s *Service) applyFormal(ctx context.Context, tx store.DBTX, media string, 
 			continue
 		}
 		if automatic {
-			_, _, e = s.formal.Observe(ctx, tx, song, metastore.Evidence{Origin: o, Fields: map[string]any{name: value}})
+			_, _, e = s.formal.Observe(ctx, tx, entityID, metastore.Evidence{Origin: o, Fields: map[string]any{name: value}})
 		} else {
-			e = s.formal.Decide(ctx, tx, song, map[string]any{name: value}, o)
+			e = s.formal.Decide(ctx, tx, entityID, map[string]any{name: value}, o)
 		}
 		if e != nil {
 			return e

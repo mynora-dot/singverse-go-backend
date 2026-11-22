@@ -124,6 +124,28 @@ func (s *Service) mergeShared(ctx context.Context, tx store.DBTX, id string, sna
 			next["technical"] = prior
 		}
 	}
+	var adoptedClaim map[string]any
+	if claim, ok := snapshot["audioRoles"].(map[string]any); ok && len(encode(claim)) <= metastandard.MaxLegacyAudioClaimBytes {
+		// Earlier imports retained the claim without recording its field owner.
+		// Establish a baseline only on a matching replay of that collection.
+		prior := next["audioRoles"]
+		eligible := true
+		if prior == nil && len(rows) > 0 {
+			saved, err := s.rows(ctx, tx, "shared-audioClaim", map[string]any{"songId": id})
+			if err != nil {
+				return "", nil, err
+			}
+			if len(saved) > 0 {
+				var envelope map[string]any
+				eligible = decode(saved[0]["claim_json"], &envelope) == nil && collection == oldCollection &&
+					revision >= oldRevision && encode(envelope["claim"]) == encode(claim)
+			}
+		}
+		if eligible && adopt("audioRoles", prior, claim) {
+			next["audioRoles"] = claim
+			adoptedClaim = claim
+		}
+	}
 	for _, f := range []string{"lyrics", "lyricsRef", "aliases", "evidence", "extractorVersion", "origins", "fields"} {
 		v := snapshot[f]
 		if v == nil {
@@ -188,6 +210,27 @@ func (s *Service) mergeShared(ctx context.Context, tx store.DBTX, id string, sna
 		if _, e = s.exec(ctx, tx, "dav-bootstrap", map[string]any{"sourceId": song["sourceId"], "binding": cfg["binding"], "songId": id}); e != nil {
 			return "", nil, e
 		}
+		args["path"] = song["relativePath"]
+		args["hash"] = hash(text(song["relativePath"]))
+		args["taskId"] = uuid()
+		moved, e := s.exec(ctx, tx, "shared-relocateResource", args)
+		if e != nil {
+			return "", nil, e
+		}
+		n, e := moved.RowsAffected()
+		if e != nil {
+			return "", nil, e
+		}
+		if n != 0 {
+			args["verification"] = "PENDING"
+			args["now"] = nil
+			if _, e = s.exec(ctx, tx, "shared-verification", args); e != nil {
+				return "", nil, e
+			}
+			if _, e = s.exec(ctx, tx, "shared-supersedeExtractions", args); e != nil {
+				return "", nil, e
+			}
+		}
 	}
 	if len(rows) == 0 {
 		if _, e = s.exec(ctx, tx, "shared-markImported", args); e != nil {
@@ -205,6 +248,16 @@ func (s *Service) mergeShared(ctx context.Context, tx store.DBTX, id string, sna
 		differences = append(differences, diff...)
 	} else if e = s.applySharedFormal(ctx, tx, id, snapshot, collection, revision); e != nil {
 		return "", nil, e
+	}
+	if adoptedClaim != nil {
+		s.hookMu.RLock()
+		save := s.audioClaim
+		s.hookMu.RUnlock()
+		if save != nil {
+			if e = save(ctx, tx, id, adoptedClaim); e != nil {
+				return "", nil, e
+			}
+		}
 	}
 	if changed {
 		if e = s.Touch(ctx, tx, id); e != nil {

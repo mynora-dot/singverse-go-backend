@@ -1,1 +1,1 @@
-UPDATE media_import_job SET input_state=@{inputState},input_cleanup_error=@{cleanupError},input_cleanup_after=@{cleanupAfter} WHERE id=@{id} AND input_state='PENDING' AND phase='VERIFYING'
+UPDATE media_import_job SET input_state=@{inputState},input_cleanup_error=@{cleanupError},input_cleanup_after=@{cleanupAfter} WHERE id=@{id} AND input_state='PENDING' AND phase IN ('IMPORTED','VERIFYING')

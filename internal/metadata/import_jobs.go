@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -331,8 +332,8 @@ func (s *Service) importAction(c *gin.Context) {
 			if e = s.validateImportBinding(ctx, tx, job); e != nil {
 				return e
 			}
-			if phase == "VERIFYING" {
-				state = "VERIFYING"
+			if phase == "IMPORTED" || phase == "VERIFYING" {
+				state, phase = "VERIFYING", "VERIFYING"
 				source, e := s.row(ctx, tx, "source", map[string]any{"id": job["source_id"]})
 				if e != nil {
 					return e
@@ -629,9 +630,6 @@ func (s *Service) applyImport(ctx context.Context, job map[string]any) error {
 				if added {
 					outcome = "ADDED"
 				}
-				if e = s.importAudioClaim(ctx, tx, songID, snapshot); e != nil {
-					return e
-				}
 				if _, e = s.exec(ctx, tx, "workflow-entryApplied", map[string]any{"id": id, "ordinal": entry["ordinal"], "songId": songID, "outcome": outcome, "differences": encode(diff)}); e != nil {
 					return e
 				}
@@ -686,6 +684,9 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 		if prior := text(fresh["verification_source_binding"]); prior != "" && prior != sourceBinding {
 			return conflict("核验期间来源账号已变化，请重试目录核验")
 		}
+		if _, e = s.exec(ctx, tx, "workflow-superseded", map[string]any{"id": id, "sourceId": job["source_id"], "first": 0, "last": int64(math.MaxInt64)}); e != nil {
+			return e
+		}
 		_, e = s.exec(ctx, tx, "workflow-verificationBinding", map[string]any{"id": id, "sourceBinding": sourceBinding})
 		return e
 	}); e != nil {
@@ -735,6 +736,10 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 					return e
 				}
 				for _, entry := range group.entries[start:stop] {
+					// Another import or rebind may have committed during the directory request.
+					if _, e = s.exec(ctx, tx, "workflow-superseded", map[string]any{"id": id, "sourceId": job["source_id"], "first": entry["ordinal"], "last": entry["ordinal"]}); e != nil {
+						return e
+					}
 					state := "PRESENT"
 					size, found := observed[text(entry["relative_path"])]
 					if listErr != nil {
@@ -756,8 +761,16 @@ func (s *Service) verifyImport(ctx context.Context, job map[string]any) error {
 						}
 					}
 					a := map[string]any{"id": id, "ordinal": entry["ordinal"], "songId": entry["song_id"], "verification": state, "verificationLevel": level, "verificationError": verificationMessage(listErr), "now": now()}
-					if _, e = s.exec(ctx, tx, "workflow-entryVerified", a); e != nil {
+					result, e := s.exec(ctx, tx, "workflow-entryVerified", a)
+					if e != nil {
 						return e
+					}
+					recorded, e := result.RowsAffected()
+					if e != nil {
+						return e
+					}
+					if recorded == 0 {
+						continue
 					}
 					if _, e = s.exec(ctx, tx, "shared-verification", a); e != nil {
 						return e
@@ -1089,20 +1102,6 @@ func verificationMessage(err error) any {
 	}
 	return "无法连接或读取目录，请检查来源连接后重试"
 }
-func (s *Service) importAudioClaim(ctx context.Context, tx store.DBTX, id string, snapshot map[string]any) error {
-	claim, ok := snapshot["audioRoles"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	s.hookMu.RLock()
-	fn := s.audioClaim
-	s.hookMu.RUnlock()
-	if fn != nil {
-		return fn(ctx, tx, id, claim)
-	}
-	return nil
-}
-
 func (s *Service) cleanupImports(ctx context.Context, before string) error {
 	jobs, e := s.rows(ctx, s.db, "workflow-expired", map[string]any{"before": before})
 	if e != nil {

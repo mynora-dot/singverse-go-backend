@@ -75,7 +75,7 @@ SINGVERSE_COMPUTE_PROJECT=/absolute/checkout make backend-check # Go 检查及�
 生产默认 Dockerfile 为 `infra/docker/build/app.Dockerfile`，Compose 为 `infra/docker/compose/compose.yaml`，项目名 `singverse-go-app` 保留既有 Go 命名卷身份。首次从 Java 切换时使用独立 Go 数据，不迁移旧 Java 账号或库，不允许两种实现共享写入后的数据库。旧数据保护与明确回退见 [迁移说明](go-migration.md)。本机管理员恢复为停止服务后 `bin/singverse --reset-admin`，需真实终端，见 [认证说明](authentication.md)。
 
 
-媒体来源新增持久化入库启动请求与资料包后台工作流：上传完成后解析、路径映射预览、确认后按字段合并并持久保存，再用接收方 WebDAV 配置核验目录和大小；无需 compute 即可导入和使用资料。默认共享 v4 使用稳定对象、系列、字符串修订和二进制原始附件，兼容 v2/v3，保护本机订正。正式附件存于 `WEBDAV_METADATA_PATH`，衍生文件独立重试，分享不再等待衍生文件。接口与完整流程见[媒体库管理](media-library.md#媒体入库资料合并与分享2026-11-10)。
+媒体来源新增持久化入库启动请求与资料包后台工作流：上传完成后解析、路径映射预览、确认后按字段合并并持久保存。WebDAV 资料包先离线保存，随后自动按父目录列举文件，核验映射后的路径和可得大小。核验仅使用目录请求。无需 compute 即可导入和使用资料。默认共享 v4 使用稳定对象、系列、字符串修订和二进制原始附件，兼容 v2/v3，保护本机订正。正式附件存于 `WEBDAV_METADATA_PATH`，衍生文件独立重试，分享不再等待衍生文件。接口与完整流程见[媒体库管理](media-library.md#媒体入库资料合并与分享2026-11-10)。
 
 
 ## 正式元数据标准 1.0

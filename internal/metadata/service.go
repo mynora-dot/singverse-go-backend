@@ -284,6 +284,7 @@ func (s *Service) Register(g *gin.RouterGroup) {
 	m.POST("/songs/:songId/apply", s.applyHTTP)
 	m.GET("/songs/:songId/review", s.reviewHTTP)
 	m.POST("/songs/:songId/review/apply", s.reviewApplyHTTP)
+	m.POST("/songs/:songId/candidates/:candidateId/lyrics", s.candidateLyricsHTTP)
 	m.POST("/songs/:songId/covers/search", s.coverSearch)
 	m.POST("/songs/:songId/covers/upload", s.upload)
 	m.GET("/cover-assets/:id", s.assetImage)
@@ -329,16 +330,17 @@ func absent(err error, detail string) error {
 }
 
 func (s *Service) song(ctx context.Context, db store.DBTX, id string) (map[string]any, error) {
-	song, fp, e := s.library.SongIdentity(ctx, db, id)
+	song, fp, variantVersion, e := s.library.SongIdentity(ctx, db, id)
 	if e == nil {
 		song["_fingerprint"] = fp
+		song["_variantVersion"] = variantVersion
 	}
 	return song, e
 }
 func publicSong(song map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range song {
-		if k != "_fingerprint" {
+		if k != "_fingerprint" && k != "_variantVersion" {
 			out[k] = v
 		}
 	}

@@ -71,6 +71,7 @@ type Song struct {
 	Metadata           any         `json:"metadata"`
 	Classification     any         `json:"classification"`
 	contentFingerprint string
+	formalVariant      *string
 	pathHash           string
 	etag               *string
 	embedded           *string

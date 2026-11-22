@@ -155,6 +155,8 @@ func (s *Service) search(ctx context.Context, song map[string]any, input SearchI
 			if err != nil {
 				return out, err
 			}
+			candidate.Track.LyricsPath = ""
+			candidate.Track.Lyrics = nil
 			out.Candidates = append(out.Candidates, candidate)
 		}
 	}
@@ -215,16 +217,16 @@ func (s *Service) candidate(ctx context.Context, db store.DBTX, id string) (map[
 	e = decode(r["track_json"], &t)
 	return r, t, e
 }
-func selectedFields(in []string, defaults bool) ([]string, error) {
+func selectedFields(in, allowed []string, defaults bool) ([]string, error) {
 	if len(in) == 0 {
 		if defaults {
-			return append([]string{}, allFields...), nil
+			return append([]string{}, allowed...), nil
 		}
 		return nil, bad("请选择有效的应用字段")
 	}
 	out := []string{}
 	for _, f := range in {
-		if !contains(allFields, f) {
+		if !contains(allowed, f) {
 			return nil, bad("应用字段无效")
 		}
 		if !contains(out, f) {
@@ -260,12 +262,14 @@ func mergeTrack(values map[string]any, base Track) Track {
 	return t
 }
 func (s *Service) saveApplied(ctx context.Context, tx store.DBTX, song map[string]any, a Applied, selected []string, automatic bool) error {
-	args := map[string]any{"songId": song["id"], "sourceId": song["sourceId"], "fingerprint": fingerprint(song), "track": encode(a.Track), "fields": encode(a.Fields), "origins": encode(a.Origins), "now": a.AppliedAt}
-	if _, e := s.exec(ctx, tx, "meta-deleteApplied", args); e != nil {
-		return e
-	}
-	if _, e := s.exec(ctx, tx, "meta-insertApplied", args); e != nil {
-		return e
+	if len(selected) != 1 || selected[0] != "lyrics" {
+		args := map[string]any{"songId": song["id"], "sourceId": song["sourceId"], "fingerprint": fingerprint(song), "track": encode(a.Track), "fields": encode(a.Fields), "origins": encode(a.Origins), "now": a.AppliedAt}
+		if _, e := s.exec(ctx, tx, "meta-deleteApplied", args); e != nil {
+			return e
+		}
+		if _, e := s.exec(ctx, tx, "meta-insertApplied", args); e != nil {
+			return e
+		}
 	}
 	originValues := map[string]any{}
 	if e := decode(encode(a.Origins), &originValues); e != nil {
@@ -275,6 +279,9 @@ func (s *Service) saveApplied(ctx context.Context, tx store.DBTX, song map[strin
 	allValues := trackValues(a.Track)
 	for _, f := range selected {
 		formalValues[f] = allValues[f]
+		if f == "lyrics" {
+			formalValues[f] = a.Variant[f]
+		}
 	}
 	var formalErr error
 	if automatic {
@@ -321,7 +328,7 @@ func (s *Service) applyLocked(ctx context.Context, tx store.DBTX, id string, in 
 	if fp != text(r["fingerprint"]) || expected != "" && expected != fp {
 		return Applied{}, conflict("歌曲文件已变化，请重新扫描并匹配元数据")
 	}
-	fields, e := selectedFields(in.Fields, true)
+	fields, e := selectedFields(in.Fields, allFields, true)
 	if e != nil {
 		return Applied{}, e
 	}

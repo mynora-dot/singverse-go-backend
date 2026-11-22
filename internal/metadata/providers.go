@@ -31,6 +31,8 @@ type musicProvider struct {
 	name    string
 }
 
+const providerUserAgent = "SingVerse/0.1 metadata-only"
+
 func guarded[T any](ctx context.Context, s *Service, name string, action func(context.Context) (T, error)) (T, error) {
 	var zero T
 	if err := ctx.Err(); err != nil {
@@ -128,7 +130,13 @@ func eapi(path, body string) string {
 }
 func (p *musicProvider) request(ctx context.Context, method, target string, form url.Values, headers map[string]string) (map[string]any, error) {
 	u, e := url.Parse(target)
-	allowed := map[string][]string{"NETEASE": {"interfacepc.music.163.com", "music.163.com"}, "QQ": {"c.y.qq.com"}, "KUGOU": {"gateway.kugou.com", "songsearch.kugou.com"}, "KUWO": {"search.kuwo.cn"}, "MIGU": {"app.c.nf.migu.cn"}}
+	allowed := map[string][]string{
+		"NETEASE": {"interfacepc.music.163.com", "music.163.com"},
+		"QQ":      {"c.y.qq.com"},
+		"KUGOU":   {"gateway.kugou.com", "songsearch.kugou.com", "krcs.kugou.com", "lyrics.kugou.com"},
+		"KUWO":    {"search.kuwo.cn", "www.kuwo.cn"},
+		"MIGU":    {"app.c.nf.migu.cn"},
+	}
 	if e != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || !contains(allowed[p.name], u.Hostname()) {
 		return nil, bad("平台请求地址无效")
 	}
@@ -141,7 +149,7 @@ func (p *musicProvider) request(ctx context.Context, method, target string, form
 		return nil, e
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "SingVerse/0.1 metadata-only")
+	req.Header.Set("User-Agent", providerUserAgent)
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -165,7 +173,7 @@ func (p *musicProvider) request(ctx context.Context, method, target string, form
 	}
 	var root map[string]any
 	text := string(data)
-	if p.name == "KUWO" {
+	if u.Hostname() == "search.kuwo.cn" {
 		text, e = jsondata.NormalizeSingleQuoted(text)
 		if e != nil {
 			return nil, &problem{503, "酷我响应无效"}

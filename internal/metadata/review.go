@@ -19,8 +19,24 @@ func (s *Service) reviewHTTP(c *gin.Context) {
 		s.fail(c, e)
 		return
 	}
-	c.JSON(200, Review{publicSong(song), fingerprint(song), version(song), current(song)})
+	c.Header("Cache-Control", "no-store")
+	c.JSON(200, Review{publicSong(song), fingerprint(song), version(song), s.reviewValues(ctx, s.db, song)})
 }
+
+func (s *Service) reviewValues(ctx context.Context, tx store.DBTX, song map[string]any) map[string]any {
+	values := current(song)
+	variant, _ := pathValue(song, "metadata", "variant").(map[string]any)
+	lyrics, exists := variant["lyrics"]
+	if !exists && variant["lyricsAsset"] != nil {
+		// An unreadable local attachment shouldn't prevent reviewing other fields.
+		if resolved, err := s.library.FormalLyrics(ctx, tx, text(song["id"])); err == nil && resolved != nil {
+			lyrics = resolved
+		}
+	}
+	values["lyrics"] = lyrics
+	return values
+}
+
 func (s *Service) reviewApplyHTTP(c *gin.Context) {
 	var in ReviewApply
 	if !s.decode(c, &in) {
@@ -146,7 +162,7 @@ func (s *Service) reviewApply(ctx context.Context, tx store.DBTX, id string, in 
 	if !validCoverQuality(in.CoverQuality) {
 		return out, bad("请选择原图或高清封面")
 	}
-	fields, e := selectedFields(in.Fields, false)
+	fields, e := selectedFields(in.Fields, reviewFields, false)
 	if e != nil || !uuidPattern.MatchString(in.RequestID) {
 		return out, bad("请选择有效的应用字段并提供提交标识")
 	}
@@ -176,7 +192,7 @@ func (s *Service) reviewApply(ctx context.Context, tx store.DBTX, id string, in 
 	if in.Fingerprint != fp || in.Version != version(song) {
 		return out, conflict("歌曲文件或确认元数据已变化，请重新加载后审核；编辑内容尚未应用")
 	}
-	before := current(song)
+	before := s.reviewValues(ctx, tx, song)
 	values := map[string]any{}
 	for k, v := range before {
 		values[k] = v
@@ -195,6 +211,11 @@ func (s *Service) reviewApply(ctx context.Context, tx store.DBTX, id string, in 
 			values[f] = v
 			origins[f] = Origin{t.Provider, t.ExternalID, at, "PLATFORM"}
 			supplied[f] = true
+		}
+		if contains(fields, "lyrics") && t.Lyrics != nil && encode(t.Lyrics) != encode(before["lyrics"]) {
+			values["lyrics"] = t.Lyrics
+			origins["lyrics"] = Origin{t.Provider, t.ExternalID, at, "PLATFORM"}
+			supplied["lyrics"] = true
 		}
 	}
 	for f, v := range in.Edits {
@@ -257,7 +278,7 @@ func (s *Service) reviewApply(ctx context.Context, tx store.DBTX, id string, in 
 			after[f] = values[f]
 		}
 	}
-	for _, f := range allFields {
+	for _, f := range reviewFields {
 		if !contains(fields, f) {
 			out.Retained = append(out.Retained, f)
 		}
@@ -307,19 +328,26 @@ func (s *Service) reviewApply(ctx context.Context, tx store.DBTX, id string, in 
 			}
 		}
 		for _, f := range out.Updated {
-			if !contains(all, f) {
+			if f != "lyrics" && !contains(all, f) {
 				all = append(all, f)
 			}
 			merged[f] = origins[f]
 		}
 		base := Track{}
-		if candidate != nil {
+		if len(out.Updated) == 1 && out.Updated[0] == "lyrics" {
+			if prior != nil {
+				base = prior.Track
+			}
+		} else if candidate != nil {
 			base = *candidate
 			if _, ok := in.Edits["artists"]; ok {
 				base.ArtistRefs = []ArtistRef{}
 			}
 		}
 		applied := Applied{Track: mergeTrack(after, base), Fields: all, AppliedAt: at, Origins: merged}
+		if supplied["lyrics"] {
+			applied.Variant = map[string]any{"lyrics": after["lyrics"]}
+		}
 		if e = s.saveApplied(ctx, tx, song, applied, out.Updated, false); e != nil {
 			return out, e
 		}

@@ -135,7 +135,7 @@ func exerciseV4OriginalAssets(t *testing.T, f *fixture) {
 	// to the sender's source, or a platform/image cache.
 	receiver := setup(t)
 	target := newDAV(t, receiver, "own-root")
-	applied := applyWorkflow(t, receiver, target, bundle)
+	applied := applyWorkflow(t, receiver, target, bundle, "SUCCEEDED")
 	if number(applied["addedCount"]) != 1 {
 		t.Fatal(applied)
 	}
@@ -166,9 +166,8 @@ func exerciseV4OriginalAssets(t *testing.T, f *fixture) {
 	if e != nil || number(m.Fields["durationMs"]) != 123500 {
 		t.Fatal("media and reference duration mixed", m, e)
 	}
-	request(t, receiver.router, "POST", "/api/v1/media-sources/"+target+"/embedded-metadata/import-jobs/"+text(applied["id"])+"/cancel", nil, 200)
 	request(t, receiver.router, "PATCH", "/api/v1/metadata/entities/"+song, metastore.Update{ExpectedRevision: d.Revision, RequestID: uuid(), Operations: []metastore.Operation{{Field: "title", Op: "CLEAR"}}}, 200)
-	repeat := applyWorkflow(t, receiver, target, bundle)
+	repeat := applyWorkflow(t, receiver, target, bundle, "SUCCEEDED")
 	if number(repeat["addedCount"]) != 0 {
 		t.Fatal("repeat created media", repeat)
 	}
@@ -484,7 +483,7 @@ func TestV4GroupsPreScannedMediaAndKeepsLocallyConfirmedBranch(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			applied := applyWorkflow(t, receiver, target, w.Body.Bytes())
+			applied := applyWorkflow(t, receiver, target, w.Body.Bytes(), "VERIFYING")
 			if number(applied["addedCount"]) != 0 {
 				t.Fatal("already scanned files duplicated", applied)
 			}

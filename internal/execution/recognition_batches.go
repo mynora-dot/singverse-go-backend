@@ -133,7 +133,7 @@ func (s *Service) recoverRecognitionResults(ctx context.Context) error {
 			err = s.transaction(ctx, "AUDIO_BATCH", batchCursor, func(tx *sqlx.Tx) error {
 				state, detail := str(item, "state"), str(item, "error")
 				if state == "REVIEW" {
-					status, e := s.audioStatusWith(ctx, tx, songCursor)
+					status, e := s.audioStatusWith(ctx, tx, songCursor, false)
 					if e != nil {
 						var missing *failure
 						if errors.As(e, &missing) && missing.status == 404 {

@@ -1,1 +1,1 @@
-UPDATE media_import_entry SET song_id=@{songId},outcome=@{outcome},differences_json=@{differences} WHERE job_id=@{id} AND ordinal=@{ordinal}
+UPDATE media_import_entry SET song_id=@{songId},outcome=@{outcome},differences_json=@{differences},file_size=COALESCE(file_size,(SELECT expected_size FROM media_shared_song WHERE song_id=@{songId})) WHERE job_id=@{id} AND ordinal=@{ordinal}

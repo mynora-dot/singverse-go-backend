@@ -9,9 +9,10 @@ import (
 )
 
 func (s *Service) registerAudioRoutes(g *gin.RouterGroup) {
-	for _, method := range []string{"GET", "PUT"} {
-		g.Handle(method, "/media-songs/:id/audio-roles", s.songRolesHTTP)
-	}
+	g.GET("/media-songs/:id/audio-roles", func(c *gin.Context) {
+		s.respond(c, 200, func(ctx context.Context) (any, error) { return s.AudioStatus(ctx, c.Param("id")) })
+	})
+	g.PUT("/media-songs/:id/audio-roles", s.songRolesHTTP)
 	g.POST("/media-songs/:id/audio-jobs", s.submitAudioJobHTTP)
 	g.POST("/media-songs/:id/accompaniment/:job/activate", s.activateAudioHTTP)
 	g.DELETE("/media-songs/:id/accompaniment/:job", s.deleteAudioHTTP)

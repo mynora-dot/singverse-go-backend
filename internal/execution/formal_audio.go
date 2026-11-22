@@ -2,7 +2,6 @@ package execution
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"path/filepath"
 	"strings"
@@ -45,39 +44,80 @@ func audioOnly(streams any) []any {
 // Compare the same source identity in both representations, without replacing
 // a complete video observation with an audio-only probe.
 func matchingAudioStreams(first, second any) bool {
-	canonical := func(value any) []any {
-		out := []any{}
-		for _, raw := range audioOnly(value) {
-			stream := obj(raw)
-			id := str(stream, "id")
-			if id == "" && stream["index"] != nil {
-				id = fmt.Sprintf("stream:%d", integer(stream["index"]))
-			}
-			codec := str(stream, "codec")
-			if codec == "" {
-				codec = str(stream, "codec_name")
-			}
-			tags := obj(stream["tags"])
-			language, title := str(stream, "language"), str(stream, "title")
-			if language == "" {
-				language = str(tags, "language")
-			}
-			if language == "" {
-				language = "und"
-			}
-			if title == "" {
-				title = str(tags, "title")
-			}
-			runes := []rune(title)
-			if len(runes) > 120 {
-				title = string(runes[:120])
-			}
-			out = append(out, map[string]any{"id": id, "index": integer(stream["index"]), "codec": codec, "channels": integer(stream["channels"]), "language": language, "title": title})
-		}
-		return out
+	return compareAudioStreams(first, second, false)
+}
+
+// Legacy technical snapshots omitted some stream labels that the accompanying
+// role claim retained. Missing labels in these two package records may match.
+func compareAudioStreams(first, second any, allowMissing bool) bool {
+	a, b := audioOnly(first), audioOnly(second)
+	if len(a) == 0 || len(a) != len(b) {
+		return false
 	}
-	a, b := canonical(first), canonical(second)
-	return len(a) > 0 && encoded(a) == encoded(b)
+	for i, raw := range a {
+		left, right := obj(raw), obj(b[i])
+		id := metastandard.PackageStreamID(left)
+		if id == "" || id != metastandard.PackageStreamID(right) {
+			return false
+		}
+		x, y := comparableStreamFields(left), comparableStreamFields(right)
+		for j, v := range x {
+			if v != y[j] && !(allowMissing && (v == "" || y[j] == "")) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func comparableStreamFields(stream map[string]any) [4]string {
+	codec := str(stream, "codec")
+	if codec == "" {
+		codec = str(stream, "codec_name")
+	}
+	tags := obj(stream["tags"])
+	language, title := str(stream, "language"), str(stream, "title")
+	if language == "" {
+		language = streamTag(tags, "language")
+	}
+	if language == "und" {
+		language = ""
+	}
+	if title == "" {
+		title = streamTag(tags, "title")
+	}
+	runes := []rune(title)
+	if len(runes) > 120 {
+		title = string(runes[:120])
+	}
+	return [4]string{codec, str(stream, "channels"), language, title}
+}
+
+func streamTag(tags map[string]any, name string) string {
+	if value := str(tags, name); value != "" {
+		return value
+	}
+	for key := range tags {
+		if strings.EqualFold(key, name) {
+			return str(tags, key)
+		}
+	}
+	return ""
+}
+
+func documentAudioDuration(d metastandard.Document) float64 {
+	if oneOf(d.States["durationMs"].Status, "CLEARED", "NOT_APPLICABLE", "STALE") {
+		return -1
+	}
+	duration := number(d.Fields["durationMs"]) / 1000
+	observed := number(obj(d.Fields["observation"])["durationMs"]) / 1000
+	if duration > 0 && observed > 0 && math.Abs(duration-observed) > .25 {
+		return -1
+	}
+	if duration == 0 {
+		return observed
+	}
+	return duration
 }
 
 // Shared observations remain declarations from the exporting receiver. A local
@@ -89,14 +129,11 @@ func (s *Service) formalAudioClaim(ctx context.Context, tx store.DBTX, id string
 	}
 	original, backing := metastandard.AudioRoleIDs(d.Fields["audioRoles"])
 	observed := obj(d.Fields["observation"])
-	return map[string]any{"state": "CONFIRMED", "originalId": original, "backingId": backing, "streams": audioOnly(observed["streams"]), "duration": number(d.Fields["durationMs"]) / 1000}, nil
+	return map[string]any{"state": "CONFIRMED", "originalId": original, "backingId": backing, "streams": audioOnly(observed["streams"]), "duration": documentAudioDuration(d)}, nil
 }
-func (s *Service) projectFormalRoles(ctx context.Context, db store.DBTX, id string, value map[string]any) error {
+func (s *Service) projectFormalRoles(ctx context.Context, db store.DBTX, song, value map[string]any, includePackageHint bool) error {
+	id := str(song, "id")
 	d, err := s.library.Formal().Read(ctx, db, id)
-	if err != nil {
-		return err
-	}
-	song, err := s.song(ctx, db, id)
 	if err != nil {
 		return err
 	}
@@ -104,7 +141,9 @@ func (s *Service) projectFormalRoles(ctx context.Context, db store.DBTX, id stri
 	if err != nil {
 		return err
 	}
-	projectAudioDocument(song, d, receipt, value)
+	if hint := projectAudioDocument(song, d, receipt, value); includePackageHint && hint != nil {
+		value["packageRoleHint"] = hint
+	}
 	return nil
 }
 
@@ -140,11 +179,8 @@ func declaredAudioStreams(observation any) []any {
 	out := make([]any, 0, len(streams))
 	for _, raw := range streams {
 		stream := copyMap(obj(raw))
-		id := str(stream, "id")
-		if id == "" && stream["index"] != nil {
-			id = fmt.Sprintf("stream:%d", integer(stream["index"]))
-		}
-		if !audioPattern.MatchString(id) {
+		id := metastandard.PackageStreamID(stream)
+		if id == "" {
 			return nil
 		}
 		stream["id"], stream["kind"] = id, "audio"
@@ -153,53 +189,153 @@ func declaredAudioStreams(observation any) []any {
 	return out
 }
 
-func projectAudioDocument(song map[string]any, d metastandard.Document, receipt, value map[string]any) {
+type packageAudioMapping struct {
+	original, backing, basis string
+	streams                  []any
+	duration                 float64
+}
+
+func importedAudioMapping(song map[string]any, d metastandard.Document, receipt map[string]any) packageAudioMapping {
+	state := d.States["audioRoles"]
+	if str(receipt, "shared_verification") == "" || oneOf(state.Decision, "SET", "CLEAR") || oneOf(state.Status, "CLEARED", "STALE", "NOT_APPLICABLE") {
+		return packageAudioMapping{}
+	}
+	roles := d.Fields["audioRoles"]
+	if roles != nil && state.Origin.Kind != "SHARED" {
+		return packageAudioMapping{}
+	}
+	observation := d.Fields["observation"]
+	observedState := d.States["observation"]
+	sharedObservation := observedState.Origin.Kind == "SHARED" && observedState.Status == "PRESENT"
+	streams := declaredAudioStreams(observation)
+	duration := documentAudioDuration(d)
+	if roles != nil {
+		o, b, basis := metastandard.PackageAudioRoles(roles, observation)
+		if basis == "STREAM_TITLES" && !sharedObservation {
+			return packageAudioMapping{}
+		}
+		return packageAudioMapping{o, b, basis, streams, duration}
+	}
+	if oneOf(observedState.Status, "CLEARED", "STALE", "NOT_APPLICABLE") {
+		return packageAudioMapping{}
+	}
+	// Older imports may retain the sender's portable claim only in this table.
+	// Its fingerprint prevents applying it to a replaced source file.
+	legacy := decoded(receipt["claim_json"])
+	if str(legacy, "fingerprint") == contentFingerprint(song) {
+		claim := obj(legacy["claim"])
+		if claim["streams"] == nil && len(streams) > 0 {
+			claim = copyMap(claim)
+			claim["streams"] = streams
+		}
+		o, b, basis := metastandard.LegacyPackageAudioRoles(claim)
+		claimStreams := declaredAudioStreams(claim)
+		claimDuration := number(claim["duration"])
+		if len(streams) > 0 && len(claimStreams) > 0 && !compareAudioStreams(streams, claimStreams, true) ||
+			duration > 0 && claimDuration > 0 && math.Abs(duration-claimDuration) > .25 {
+			return packageAudioMapping{}
+		}
+		if basis != "" {
+			if len(claimStreams) == 0 {
+				claimStreams = streams
+			}
+			if claimDuration <= 0 || duration < 0 {
+				claimDuration = duration
+			}
+			return packageAudioMapping{o, b, basis, claimStreams, claimDuration}
+		}
+		if str(claim, "originalId") != "" || str(claim, "backingId") != "" {
+			return packageAudioMapping{}
+		}
+	}
+	if !sharedObservation {
+		return packageAudioMapping{}
+	}
+	o, b, basis := metastandard.PackageAudioRoles(nil, observation)
+	return packageAudioMapping{o, b, basis, streams, duration}
+}
+
+func (m packageAudioMapping) conflictsWithProbe(value map[string]any) bool {
+	return value["streams"] != nil && (len(m.streams) > 0 && !matchingAudioStreams(m.streams, value["streams"]) ||
+		m.duration > 0 && math.Abs(m.duration-number(value["duration"])) > .25)
+}
+
+func (m packageAudioMapping) activate(receipt, value map[string]any, origin string) bool {
+	if m.duration <= 0 || m.duration > 604800 {
+		return false
+	}
+	ids := map[string]bool{}
+	for _, raw := range m.streams {
+		ids[str(obj(raw), "id")] = true
+	}
+	hasRoles := len(ids) == 1 && m.backing == "" || len(ids) > 1 && m.backing != m.original && ids[m.backing]
+	if len(ids) != len(m.streams) || !ids[m.original] || !hasRoles {
+		return false
+	}
+	value["receiverProbed"] = value["streams"] != nil
+	value["state"], value["originalId"], value["backingId"] = "CONFIRMED", m.original, m.backing
+	value["streams"], value["duration"], value["origin"] = m.streams, m.duration, origin
+	value["reuseBasis"] = str(decoded(receipt["location_observation"]), "verificationLevel")
+	return true
+}
+
+func projectAudioDocument(song map[string]any, d metastandard.Document, receipt, value map[string]any) map[string]any {
 	delete(value, "originalSelection")
 	state, exists := d.States["audioRoles"]
+	mapping := importedAudioMapping(song, d, receipt)
+	var hint map[string]any
+	pending := unverifiedWebDAVImport(song) || receipt["shared_verification"] != nil && str(receipt, "shared_verification") != "PRESENT"
+	if mapping.basis != "" && !mapping.conflictsWithProbe(value) {
+		verified := !pending && sharedAudioReceipt(song, receipt)
+		if verified && mapping.activate(receipt, value, "SHARED") {
+			return nil
+		}
+		verification := str(receipt, "shared_verification")
+		if verification == "PRESENT" && !verified {
+			verification = "PENDING"
+		}
+		hint = map[string]any{"basis": mapping.basis, "originalId": mapping.original, "verification": verification}
+		if mapping.backing != "" {
+			hint["backingId"] = mapping.backing
+		}
+	}
 	// An unavailable binding never becomes playable merely because old job results
 	// or a shared declaration still contain plausible stream indices.
-	if !audioLocationUsable(song, receipt) {
+	if !audioLocationUsable(song, receipt) || pending {
 		value["state"] = "UNKNOWN"
 		delete(value, "originalId")
 		delete(value, "backingId")
-		return
+		return hint
 	}
 	if !exists || oneOf(state.Status, "MISSING", "UNREAD") && state.Decision == "AUTO" {
-		if value["streams"] == nil && singleAudioSong(str(song, "relative_path")) {
+		if value["streams"] == nil && len(mapping.streams) <= 1 && singleAudioSong(str(song, "relative_path")) {
 			value["state"], value["origin"] = "CONFIRMED", "SOURCE"
 			delete(value, "originalId")
 			delete(value, "backingId")
 			value["originalSelection"] = map[string]any{"kind": "UNIQUE_AUDIO"}
 			value["receiverProbed"] = false
 		}
-		return
+		if str(value, "state") == "CONFIRMED" {
+			return nil
+		}
+		return hint
 	}
 	value["state"] = "UNKNOWN"
 	delete(value, "originalId")
 	delete(value, "backingId")
 	if state.Status == "CLEARED" || state.Status == "STALE" {
-		return
+		return nil
 	}
 	original, backing := metastandard.AudioRoleIDs(d.Fields["audioRoles"])
 	// Reuse the exporting receiver's complete stream declaration only after the
 	// receiving root/account was checked. This is distinct from local probing.
-	if (state.Origin.Kind == "SHARED" || state.Decision == "SET") && sharedAudioReceipt(song, receipt) {
-		streams := declaredAudioStreams(d.Fields["observation"])
-		ids := map[string]bool{}
-		for _, raw := range streams {
-			ids[str(obj(raw), "id")] = true
+	if state.Decision == "SET" && sharedAudioReceipt(song, receipt) {
+		manual := packageAudioMapping{original: original, backing: backing, streams: declaredAudioStreams(d.Fields["observation"]), duration: documentAudioDuration(d)}
+		if manual.conflictsWithProbe(value) {
+			return nil
 		}
-		duration := number(d.Fields["durationMs"]) / 1000
-		if len(streams) == len(ids) && ids[original] && (len(ids) == 1 && backing == "" || len(ids) >= 2 && backing != original && ids[backing]) && duration > 0 && duration <= 604800 {
-			// A real receiver probe, if present, must not contradict the package.
-			if value["streams"] != nil && (!matchingAudioStreams(streams, value["streams"]) || math.Abs(duration-number(value["duration"])) > .25) {
-				return
-			}
-			value["receiverProbed"] = value["streams"] != nil
-			value["state"], value["originalId"], value["backingId"] = "CONFIRMED", original, backing
-			value["streams"], value["duration"], value["origin"] = streams, duration, audioRoleOrigin(state)
-			value["reuseBasis"] = str(decoded(receipt["location_observation"]), "verificationLevel")
-			return
+		if manual.activate(receipt, value, audioRoleOrigin(state)) {
+			return nil
 		}
 	}
 	ids := map[string]bool{}
@@ -207,16 +343,20 @@ func projectAudioDocument(song map[string]any, d metastandard.Document, receipt,
 		ids[str(obj(stream), "id")] = true
 	}
 	if !ids[original] || backing != "" && !ids[backing] {
-		return
+		return hint
 	}
 	if state.Decision != "SET" {
 		observed := obj(d.Fields["observation"])
-		if !matchingAudioStreams(audioOnly(observed["streams"]), value["streams"]) || math.Abs(number(d.Fields["durationMs"])/1000-number(value["duration"])) > .25 {
-			return
+		duration := documentAudioDuration(d)
+		invalidPackageRoles := state.Origin.Kind == "SHARED" && receipt["shared_verification"] != nil && mapping.basis == ""
+		if invalidPackageRoles || !matchingAudioStreams(observed["streams"], value["streams"]) ||
+			duration <= 0 || math.Abs(duration-number(value["duration"])) > .25 {
+			return hint
 		}
 	}
 	value["state"], value["originalId"], value["backingId"] = "CONFIRMED", original, backing
 	value["origin"], value["receiverProbed"] = audioRoleOrigin(state), true
+	return nil
 }
 func (s *Service) bootstrapFormalAudio(ctx context.Context) error {
 	cursor := ""

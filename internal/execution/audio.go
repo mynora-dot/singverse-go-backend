@@ -122,6 +122,11 @@ func (s *Service) submitAudio(ctx context.Context, songID, kind, backend string,
 		if contentFingerprint(current) != fp {
 			return fail(409, "源媒体已变化，请重试")
 		}
+		if automatic {
+			if reason := skipImportedAudioDiscovery(current); reason != "" {
+				return fail(409, reason)
+			}
+		}
 		if _, e = s.exec(ctx, tx, "audio-insert-job", values); e != nil {
 			return e
 		}
@@ -798,7 +803,7 @@ func (s *Service) discoverAudio(ctx context.Context) {
 		if e != nil {
 			continue
 		}
-		resolved, e := s.resolveKnownAudio(ctx, id, contentFingerprint(media))
+		resolved, e := s.resolveKnownAudio(ctx, media)
 		if e == nil && !resolved {
 			unresolved = append(unresolved, id)
 		}
@@ -860,9 +865,29 @@ func (s *Service) attachDiscovery(ctx context.Context, job map[string]any, origi
 	return s.transaction(ctx, "AUDIO_JOB", str(job, "id"), func(tx *sqlx.Tx) error { return s.recordAudio(ctx, tx, job, origins, false, false) })
 }
 
-// Resolve manual decisions, package reuse and guaranteed single-audio songs
-// before looking for compute history, so those paths do not create PROBE jobs.
-func (s *Service) resolveKnownAudio(ctx context.Context, songID, fp string) (bool, error) {
+func unverifiedWebDAVImport(song map[string]any) bool {
+	return str(song, "source_type") == "WEBDAV" && song["shared_verification"] != nil && str(song, "shared_verification") != "PRESENT"
+}
+
+// Directory verification checks only package paths. A separate library scan
+// records last_scan_id and admits these songs to normal audio discovery.
+func skipImportedAudioDiscovery(song map[string]any) string {
+	if unverifiedWebDAVImport(song) {
+		return "资料包媒体位置尚未核验"
+	}
+	if str(song, "source_type") == "WEBDAV" && str(song, "shared_verification") == "PRESENT" && song["last_scan_id"] == nil {
+		return "资料包路径已核验，可按需读取音轨"
+	}
+	return ""
+}
+
+// A scan scope may already contain a song whose binding changed since publication.
+// Check it here as well as in the global candidate query.
+func (s *Service) resolveKnownAudio(ctx context.Context, song map[string]any) (bool, error) {
+	songID, fp := str(song, "id"), contentFingerprint(song)
+	if reason := skipImportedAudioDiscovery(song); reason != "" {
+		return true, s.resolveDiscovery(ctx, songID, fp, "SKIPPED", reason)
+	}
 	status, err := s.audioStatus(ctx, songID)
 	if err != nil {
 		return false, err
@@ -885,7 +910,7 @@ func (s *Service) discoverSong(ctx context.Context, songID string, capability ma
 		return err
 	}
 	fp := contentFingerprint(song)
-	if resolved, e := s.resolveKnownAudio(ctx, songID, fp); e != nil || resolved {
+	if resolved, e := s.resolveKnownAudio(ctx, song); e != nil || resolved {
 		return e
 	}
 	history, err := s.maps(ctx, s.db, "audio-for-song", map[string]any{"song": songID, "fingerprint": fp})
@@ -991,20 +1016,31 @@ func (s *Service) PortableAudio(ctx context.Context, songID string) (map[string]
 	return v, nil
 }
 func (s *Service) ImportAudioClaim(ctx context.Context, songID string, claim map[string]any) error {
-	return s.transaction(ctx, "", "", func(tx *sqlx.Tx) error { return s.ImportAudioClaimWith(ctx, tx, songID, claim) })
+	return s.transaction(ctx, "", "", func(tx *sqlx.Tx) error { return s.storeAudioClaim(ctx, tx, songID, claim, false) })
 }
+
+// ImportAudioClaimWith receives only claims adopted by the package merge
+// policy, including revisions replacing a previously accepted claim.
 func (s *Service) ImportAudioClaimWith(ctx context.Context, tx store.DBTX, songID string, claim map[string]any) error {
+	return s.storeAudioClaim(ctx, tx, songID, claim, true)
+}
+
+func (s *Service) storeAudioClaim(ctx context.Context, tx store.DBTX, songID string, claim map[string]any, replace bool) error {
 	if len(encoded(claim)) > 16384 {
 		return nil
 	}
 	prior, err := s.optional(ctx, tx, "audio-claim", map[string]any{"song": songID})
-	if err != nil || prior != nil {
+	if err != nil || prior != nil && !replace {
 		return err
 	}
 	song, err := s.song(ctx, tx, songID)
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, tx, "audio-insert-claim", map[string]any{"song": songID, "claim": encoded(map[string]any{"fingerprint": contentFingerprint(song), "claim": claim})})
+	statement := "audio-insert-claim"
+	if prior != nil {
+		statement = "audio-update-claim"
+	}
+	_, err = s.exec(ctx, tx, statement, map[string]any{"song": songID, "claim": encoded(map[string]any{"fingerprint": contentFingerprint(song), "claim": claim})})
 	return err
 }

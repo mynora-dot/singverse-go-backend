@@ -432,7 +432,8 @@ func TestLocalScanSerializesDownloadPublication(t *testing.T) {
 func TestLocalTagsReadOutsidePublicationTransaction(t *testing.T) {
 	s, r := newTestService(t)
 	root := t.TempDir()
-	if e := os.WriteFile(filepath.Join(root, "unparsed.mkv"), []byte("local"), 0600); e != nil {
+	const filename = "文件名歌手-文件名歌名.MKV"
+	if e := os.WriteFile(filepath.Join(root, filename), []byte("local"), 0600); e != nil {
 		t.Fatal(e)
 	}
 	source := localSource(t, r, root)
@@ -440,7 +441,7 @@ func TestLocalTagsReadOutsidePublicationTransaction(t *testing.T) {
 	var calls int
 	s.SetLocalTagReader(func(ctx context.Context, sourceID, relative string) (map[string]any, error) {
 		calls++
-		if sourceID != id || relative != "unparsed.mkv" {
+		if sourceID != id || relative != filename {
 			return nil, fmt.Errorf("wrong reader target")
 		} // This query would deadlock on the isolated one-connection DB if tag IO held a transaction.
 		var amount int
@@ -453,7 +454,7 @@ func TestLocalTagsReadOutsidePublicationTransaction(t *testing.T) {
 		return map[string]any{"title": "Embedded Title", "artists": []string{"Embedded Artist"}, "album": "Embedded Album"}, nil
 	})
 	scan := requestJSON(t, r, "POST", "/api/v1/media-sources/"+id+"/scan", nil, 200)
-	if calls != 1 || scan["needsReviewSongs"] != float64(0) {
+	if calls != 1 || scan["needsReviewSongs"] != float64(0) || scan["matchedSongs"] != float64(0) {
 		t.Fatal(calls, scan)
 	}
 	songs, e := s.LibrarySongs(context.Background(), nil)
@@ -461,11 +462,66 @@ func TestLocalTagsReadOutsidePublicationTransaction(t *testing.T) {
 		t.Fatal(e, songs)
 	}
 	meta := songs[0]["metadata"].(map[string]any)
+	result := songs[0]["result"].(map[string]any)
+	if result["parseStatus"] != "SKIPPED" || result["parserRule"] != "NONE" || result["title"] != nil || result["needsReview"] != false || result["extension"] != "mkv" || songs[0]["selectedRuleId"] != nil {
+		t.Fatal(result, songs[0]["selectedRuleId"])
+	}
 	track := meta["track"].(map[string]any)
 	if track["title"] != "Embedded Title" {
 		t.Fatal(meta)
 	}
 	if meta["origins"].(map[string]any)["title"].(map[string]any)["kind"] != "FILE" {
 		t.Fatal(meta)
+	}
+}
+
+func TestLocalScanFallsBackToFilenameForIncompleteTags(t *testing.T) {
+	s, router := newTestService(t)
+	root := t.TempDir()
+	cases := []struct {
+		filename, title, artist, titleOrigin, artistOrigin string
+		tags                                               map[string]any
+	}{
+		{"歌手甲-旧名.mkv", "标签歌名", "歌手甲", "FILE", "FILENAME", map[string]any{"title": "标签歌名"}},
+		{"歌手乙-第二首.mp3", "第二首", "标签歌手", "FILENAME", "FILE", map[string]any{"artists": []string{"标签歌手"}, "title": "  "}},
+		{"歌手丙-第三首.flac", "第三首", "歌手丙", "FILENAME", "FILENAME", nil},
+	}
+	tags := map[string]map[string]any{}
+	for _, tc := range cases {
+		if err := os.WriteFile(filepath.Join(root, tc.filename), []byte("media"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		tags[tc.filename] = tc.tags
+	}
+	if err := os.WriteFile(filepath.Join(root, "unidentified.mkv"), []byte("media"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sourceID := localSource(t, router, root)["id"].(string)
+	s.SetLocalTagReader(func(ctx context.Context, sourceID, relative string) (map[string]any, error) {
+		if tags[relative] == nil {
+			return nil, fmt.Errorf("tags unavailable")
+		}
+		return tags[relative], nil
+	})
+	scan := requestJSON(t, router, "POST", "/api/v1/media-sources/"+sourceID+"/scan", nil, 200)
+	if scan["matchedSongs"] != float64(len(cases)) || scan["needsReviewSongs"] != float64(1) {
+		t.Fatal(scan)
+	}
+	songs, err := s.LibrarySongs(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]map[string]any{}
+	for _, song := range songs {
+		byPath[song["relativePath"].(string)] = song
+	}
+	for _, tc := range cases {
+		song := byPath[tc.filename]
+		meta := song["metadata"].(map[string]any)
+		track := meta["track"].(map[string]any)
+		origins := meta["origins"].(map[string]any)
+		if song["selectedRuleId"] == nil || track["title"] != tc.title || encode(track["artists"]) != encode([]string{tc.artist}) || originKind(origins["title"]) != tc.titleOrigin || originKind(origins["artists"]) != tc.artistOrigin {
+			t.Errorf("%s: %v", tc.filename, song)
+		}
 	}
 }

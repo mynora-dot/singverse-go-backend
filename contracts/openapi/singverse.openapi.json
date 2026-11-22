@@ -5185,6 +5185,118 @@
         }
       }
     },
+    "/api/v1/metadata/songs/{songId}/candidates/{candidateId}/lyrics": {
+      "post": {
+        "operationId": "previewCandidateLyrics",
+        "summary": "Load lyrics for a selected recording candidate",
+        "description": "Requires an administrator session and CSRF token. An available preview is kept with the owned candidate so that review applies the same lyrics.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "songId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "candidateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lyrics are available, missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateLyrics"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Candidate belongs to another song",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Administrator session required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "CSRF or origin rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Song or candidate missing or expired",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Song file changed or provider disabled",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Provider rate limit reached",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider request or response failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/metadata/songs/{songId}/covers/search": {
       "post": {
         "operationId": "searchSongCoverCandidates",
@@ -22458,7 +22570,7 @@
             "description": "8 GiB total/32 MiB part/5000 entries per part exceeded"
           }
         },
-        "description": "Upload must finish before leaving. After 202, browser connection is no longer required. v2 and v3 packages supported. One active import per source. Parsing and bounded apply checkpoints resume after restart; at most 100000 songs. Media verification runs after metadata and attachments are persisted, without compute."
+        "description": "Upload must finish before leaving. After 202, browser connection is no longer required. Accepts v2, v3 and v4 packages. One active import per source. Parsing and bounded apply checkpoints resume after restart; at most 100000 songs. After confirmation, WebDAV package imports persist metadata and attachments offline and automatically verify mapped paths using directory listings."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs/latest": {
@@ -22641,7 +22753,7 @@
             "description": "Workflow state, source binding, revision or baseline conflict"
           }
         },
-        "description": "Confirm preview: merge into existing/new songs in bounded atomic checkpoints, preserve local edits, then verify recipient media. Version downgrade and delta without its completed baseline return 409."
+        "description": "Confirm the preview and merge existing and new songs in bounded atomic checkpoints, preserving local edits. After all metadata commits, WebDAV package imports automatically enter VERIFYING. Directory listings verify exact paths and compare sizes when available on both sides. Version downgrade and delta without its completed baseline return 409."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs/{jobId}/cancel": {
@@ -22729,7 +22841,7 @@
             "description": "Workflow state, source binding, revision or baseline conflict"
           }
         },
-        "description": "Resume failed/cancelled parsing or application; for verification retry only missing/mismatched/unreachable entries. A changed root requires a new binding workflow."
+        "description": "Resume failed or cancelled work, retry outstanding path verification entries for the current binding, or start the first check for a legacy job in phase IMPORTED. A changed root requires a new binding workflow."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs/{jobId}/differences": {
@@ -22766,7 +22878,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Up to 100 items ordered by ordinal, nextCursor and hasMore. Item contains relativePath, fields, local/incoming values and verification/error; local protected values are kept."
+            "description": "Up to 100 items ordered by ordinal, nextCursor and hasMore. Item contains relativePath, fields, local/incoming values and verification/error. SUPERSEDED indicates an obsolete mapping or size skipped when verifying this historical entry."
           },
           "404": {
             "description": "Import not found"
@@ -28783,11 +28895,13 @@
           },
           "parseStatus": {
             "type": "string",
+            "description": "SKIPPED means a local scan used a complete embedded title and artist list and did not run filename recognition.",
             "enum": [
               "SUCCESS",
               "PARTIAL",
               "NEEDS_REVIEW",
-              "FAILED"
+              "FAILED",
+              "SKIPPED"
             ]
           },
           "parserRule": {
@@ -29759,6 +29873,17 @@
           "track": {
             "$ref": "#/components/schemas/ExternalTrack"
           },
+          "variant": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lyrics": {
+                "$ref": "#/components/schemas/ReviewLyricsValue"
+              }
+            }
+          },
           "fields": {
             "type": "array",
             "items": {
@@ -30150,6 +30275,37 @@
           "observedAt"
         ]
       },
+      "ReviewLyricsValue": {
+        "anyOf": [
+          {
+            "$ref": "../metadata/metadata.schema.json#/$defs/lyrics"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "CandidateLyrics": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "MISSING",
+              "UNSUPPORTED"
+            ]
+          },
+          "lyrics": {
+            "$ref": "#/components/schemas/ReviewLyricsValue"
+          }
+        },
+        "required": [
+          "status",
+          "lyrics"
+        ],
+        "description": "AVAILABLE includes the original lyrics and any line timing. For MISSING and UNSUPPORTED, lyrics is null."
+      },
       "ReviewValues": {
         "type": "object",
         "properties": {
@@ -30189,6 +30345,9 @@
               "null"
             ]
           },
+          "lyrics": {
+            "$ref": "#/components/schemas/ReviewLyricsValue"
+          },
           "cover": {
             "type": [
               "string",
@@ -30203,7 +30362,8 @@
           "releaseDate",
           "aliases",
           "durationMs",
-          "cover"
+          "cover",
+          "lyrics"
         ]
       },
       "SingleReview": {
@@ -30259,6 +30419,7 @@
                 "releaseDate",
                 "aliases",
                 "durationMs",
+                "lyrics",
                 "cover"
               ]
             },
@@ -30341,7 +30502,7 @@
           "version",
           "fields"
         ],
-        "description": "Manual edits override candidate values for selected fields only. Cover cannot be supplied via edits: use owned candidate or managed asset. Empty values preserve current values. fingerprint/version enforce optimistic concurrency. Identical requestId + payload replays receipt for seven days; changed payload with reused ID returns 409. Manual entry/upload works without enabling external providers."
+        "description": "Manual edits override candidate values for selected fields only. Use an owned candidate or managed asset for cover. Select lyrics to apply the selected candidate's available preview to the song version. Empty values preserve current values. fingerprint/version enforce optimistic concurrency. Identical requestId + payload replays receipt for seven days; changed payload with reused ID returns 409. Manual entry/upload works without enabling external providers."
       },
       "ReviewResult": {
         "type": "object",
@@ -30367,6 +30528,7 @@
                 "releaseDate",
                 "aliases",
                 "durationMs",
+                "lyrics",
                 "cover"
               ]
             }
@@ -30382,6 +30544,7 @@
                 "releaseDate",
                 "aliases",
                 "durationMs",
+                "lyrics",
                 "cover"
               ]
             }
@@ -30397,6 +30560,7 @@
                 "releaseDate",
                 "aliases",
                 "durationMs",
+                "lyrics",
                 "cover"
               ]
             }
@@ -33466,7 +33630,20 @@
               "PATH_ONLY",
               "PATH_AND_SIZE"
             ],
-            "description": "Receiver directory verification authorizing original, unmodified package audio reuse. This is not receiver probing or a media content hash."
+            "description": "Receiver directory verification authorizing reuse of source audio roles derived from package metadata."
+          },
+          "packageRoleHint": {
+            "type": "object",
+            "readOnly": true,
+            "description": "Admin-only offline evidence for a package mapping awaiting adoption. Playback uses the confirmed top-level roles. PRESENT describes directory verification.",
+            "properties": {
+              "originalId": { "type": "string" },
+              "backingId": { "type": "string" },
+              "basis": { "enum": ["DECLARED", "STREAM_TITLES"] },
+              "verification": { "enum": ["PENDING", "PRESENT", "MISSING", "MISMATCH", "UNREACHABLE"] }
+            },
+            "required": ["originalId", "basis", "verification"],
+            "additionalProperties": false
           },
           "receiverProbed": {
             "type": "boolean",
@@ -37144,6 +37321,7 @@
                     "MISSING",
                     "MISMATCH",
                     "UNREACHABLE",
+                    "SUPERSEDED",
                     null
                   ]
                 },
@@ -37217,7 +37395,7 @@
             "type": "string"
           }
         },
-        "description": "Durable uploaded metadata workflow. No binding digest or credentials are returned. Latest may be an empty object. Samples are constructed from recipient source root; they never use sender addresses. One verification run lists each parent directory once and saves every item outcome; explicit retry revisits failed items, or all items after source credentials change. PRESENT includes path-only observations; consult pathOnlyCount and verificationLevel for size evidence. ZIP cleanup is independent and preserves all durable import records."
+        "description": "Durable uploaded metadata workflow. No binding digest or credentials are returned. Latest may be an empty object. Samples are constructed from recipient source root; they never use sender addresses. WebDAV imports automatically enter VERIFYING after metadata is saved and reach SUCCEEDED when verification outcomes are recorded. Each run lists the distinct parent directories of the mapped package entries using Depth: 1 PROPFIND; explicit retry revisits failed items, or all items after source credentials change. PRESENT includes path-only observations; consult pathOnlyCount and verificationLevel for size evidence. ZIP cleanup is independent and preserves all durable import records."
       },
       "SourceIngestTask": {
         "type": "object",

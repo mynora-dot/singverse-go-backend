@@ -167,10 +167,9 @@ func TestVerificationDirectoryFailureAndUnknownSizeAreDurable(t *testing.T) {
 	defer remote.Close()
 	src := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"type": "WEBDAV", "name": "verification boundaries", "location": remote.URL + "/dav/"}, 201)
 	source := text(src["id"])
-	job := applyWorkflow(t, f, source, workflowPackage(t, uuid(), 1, entry("a/one.mkv", 6), entry("a/two.mkv", nil), entry("b/three.mkv", 6)))
+	job := applyWorkflow(t, f, source, workflowPackage(t, uuid(), 1, entry("a/one.mkv", 6), entry("a/two.mkv", nil), entry("b/three.mkv", 6)), "SUCCEEDED")
 	id := text(job["id"])
 	base := "/api/v1/media-sources/" + source + "/embedded-metadata/import-jobs/" + id
-	job = importStep(t, f, source, id, "SUCCEEDED")
 	if number(job["presentCount"]) != 2 || number(job["unreachableCount"]) != 1 || number(job["pathOnlyCount"]) != 1 || callsA.Load() != 1 || callsB.Load() != 1 || gets.Load() != 0 {
 		t.Fatal(job, callsA.Load(), callsB.Load(), gets.Load())
 	}
@@ -226,13 +225,13 @@ func TestVerificationRejectsCredentialChangeDuringListing(t *testing.T) {
 	defer remote.Close()
 	src := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"type": "WEBDAV", "name": "credential race", "location": remote.URL + "/dav/"}, 201)
 	source = text(src["id"])
-	job := applyWorkflow(t, f, source, workflowPackage(t, uuid(), 1, entry("song.mkv", 5)))
+	job := applyWorkflow(t, f, source, workflowPackage(t, uuid(), 1, entry("song.mkv", 5)), "VERIFYING")
 	id := text(job["id"])
+	base := "/api/v1/media-sources/" + source + "/embedded-metadata/import-jobs/" + id
 	job = importStep(t, f, source, id, "FAILED")
 	if number(job["verifiedCount"]) != 0 || number(job["presentCount"]) != 0 {
 		t.Fatal("stale account observation was committed", job)
 	}
-	base := "/api/v1/media-sources/" + source + "/embedded-metadata/import-jobs/" + id
 	request(t, f.router, "POST", base+"/retry", nil, 200)
 	job = importStep(t, f, source, id, "SUCCEEDED")
 	if number(job["presentCount"]) != 1 || job["inputState"] != "RELEASED" {

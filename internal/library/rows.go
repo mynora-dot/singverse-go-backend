@@ -75,6 +75,7 @@ func (r songRecord) model() (Song, error) {
 		FileSize: r.FileSize, ModifiedAt: r.ModifiedAt, ScannedAt: r.ScannedAt,
 		ParserProfileID: r.ParserProfileID, ParserRevision: r.ParserRevision, SelectedRuleID: r.SelectedRuleID,
 		pathHash: r.PathHash, embedded: r.Embedded, etag: r.ETag, MediaVerification: r.Verification,
+		formalVariant: r.FormalVariant,
 	}
 	if r.LocationState != "" && r.LocationState != "PRESENT" {
 		song.MediaVerification = &r.LocationState

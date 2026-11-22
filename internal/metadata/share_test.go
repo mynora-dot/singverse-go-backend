@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -21,7 +22,18 @@ import (
 
 func newDAV(t *testing.T, f *fixture, name string) string {
 	t.Helper()
-	src := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"type": "WEBDAV", "name": name, "location": "https://" + name + ".example.test/dav/", "username": "private-user", "password": "private-secret"}, 201)
+	dav := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PROPFIND" || r.Header.Get("Depth") != "1" {
+			t.Errorf("unexpected WebDAV request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusMultiStatus)
+		fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:">`+verificationSelfXML(r.URL.Path)+`</d:multistatus>`)
+	}))
+	t.Cleanup(dav.Close)
+	src := request(t, f.router, "POST", "/api/v1/media-sources", map[string]any{"type": "WEBDAV", "name": name, "location": dav.URL + "/dav/", "username": "private-user", "password": "private-secret"}, 201)
 	return text(src["id"])
 }
 func shareBundle(t *testing.T, entries []any, assets map[string]any) []byte {

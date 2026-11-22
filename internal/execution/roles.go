@@ -32,9 +32,9 @@ func roleView(song, row map[string]any) map[string]any {
 	return v
 }
 func (s *Service) audioStatus(ctx context.Context, songID string) (map[string]any, error) {
-	return s.audioStatusWith(ctx, s.db, songID)
+	return s.audioStatusWith(ctx, s.db, songID, false)
 }
-func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID string) (map[string]any, error) {
+func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID string, includePackageHint bool) (map[string]any, error) {
 	song, err := s.song(ctx, db, songID)
 	if err != nil {
 		return nil, err
@@ -153,13 +153,13 @@ func (s *Service) audioStatusWith(ctx context.Context, db store.DBTX, songID str
 		active["active"] = true
 		v["backingResource"] = active
 	}
-	if err = s.projectFormalRoles(ctx, db, songID, v); err != nil {
+	if err = s.projectFormalRoles(ctx, db, song, v, includePackageHint); err != nil {
 		return nil, err
 	}
 	return v, nil
 }
 func (s *Service) AudioStatus(ctx context.Context, song string) (map[string]any, error) {
-	return s.audioStatus(ctx, song)
+	return s.audioStatusWith(ctx, s.db, song, true)
 }
 func (s *Service) correctRoles(ctx context.Context, songID, original, backing string, expected int64) (map[string]any, error) {
 	s.mu.Lock()
@@ -192,7 +192,7 @@ func (s *Service) correctRoles(ctx context.Context, songID, original, backing st
 			}
 		}
 		if !valid {
-			status, e := s.audioStatusWith(ctx, tx, songID)
+			status, e := s.audioStatusWith(ctx, tx, songID, false)
 			if e != nil {
 				return e
 			}
