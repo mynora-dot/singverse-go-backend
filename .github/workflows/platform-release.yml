@@ -1,4 +1,5 @@
-name: platform-release
+name: SingVerse 平台镜像发布
+run-name: 发布管理平台镜像 ${{ github.event.release.tag_name }}
 on:
   release:
     types: [published]
@@ -14,6 +15,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   resolve:
+    name: 锁定正式发布的源码与版本
     if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
     runs-on: ubuntu-24.04
     outputs:
@@ -22,12 +24,14 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      # Keep the resolver from this workflow revision when publishing an older tag.
-      - uses: actions/checkout@v4
-      - name: Lock the existing stable Release to its source commit
+      # 发布较早的标签时，仍使用本次工作流版本的解析脚本。
+      - name: 检出本次工作流对应的源码
+        uses: actions/checkout@v4
+      - name: 核对正式 Release 并锁定源码提交
         id: release
         run: python3 infra/docker/resolve-release.py
   prepare:
+    name: 准备并锁定前端和客户端产物
     needs: resolve
     runs-on: ubuntu-24.04
     permissions:
@@ -40,22 +44,26 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - name: 检出已锁定的源码提交
+        uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.revision }}
-      - name: Validate all publishing destinations
+      - name: 检查 GHCR 和 Docker Hub 的发布配置
         run: python3 infra/docker/release.py validate
-      - uses: actions/setup-java@v4
+      - name: 配置 Java 环境
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: 安装 APK 校验所需的 Android 工具
+        uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
-      - run: |
+      - name: 将 Android 构建工具加入 PATH
+        run: |
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
-      - name: Reuse release lock or resolve current stable clients once
+      - name: 复用组件锁或解析前端、手机和电视的正式版本
         run: |
           mkdir -p .build/locked
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > .build/release.json
@@ -67,7 +75,8 @@ jobs:
             python3 scripts/prepare-platform.py
             gh release upload "$RELEASE_TAG" .build/platform/components.lock.json
           fi
-      - uses: actions/upload-artifact@v4
+      - name: 保存各架构共用的构建输入
+        uses: actions/upload-artifact@v4
         with:
           name: platform-inputs
           path: .build/platform/
@@ -75,6 +84,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   build:
+    name: 构建平台镜像（${{ matrix.arch }}）
     needs: [resolve, prepare]
     permissions:
       contents: read
@@ -96,35 +106,38 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: 检出已锁定的源码提交
+        uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.revision }}
-      - name: Prepare the registry cache
+      - name: 准备 Skopeo 并登录 GHCR
         run: |
           if ! command -v skopeo >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends skopeo
           fi
           printf '%s' "$GHCR_TOKEN" | skopeo login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-      - name: Restore the immutable image from GHCR for retries
+      - name: 从 GHCR 恢复已构建的发布镜像
         id: archive
         env:
           ARCH: ${{ matrix.arch }}
         run: python3 infra/docker/release-artifact.py restore --name "app-$ARCH.oci.tar"
-      - uses: actions/download-artifact@v4
+      - name: 下载已锁定的组件产物
+        uses: actions/download-artifact@v4
         if: steps.archive.outputs.found != 'true'
         with:
           name: platform-inputs
           path: .build/platform
-      - uses: docker/setup-buildx-action@v3
+      - name: 配置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
         if: steps.archive.outputs.found != 'true'
-      - name: Authenticate the shared build cache
+      - name: 登录 GHCR 以使用共享构建缓存
         if: steps.archive.outputs.found != 'true'
         env:
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || github.token }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-      - name: Build platform release archive
+      - name: 构建管理平台镜像并导出 OCI 归档
         if: steps.archive.outputs.found != 'true'
         env:
           ARCH: ${{ matrix.arch }}
@@ -138,14 +151,15 @@ jobs:
             --cache-to "type=registry,ref=$cache,mode=max,ignore-error=true" \
             --progress=plain --provenance=false --tag singverse:check \
             --output type=oci,dest=/tmp/image.tar .
-      - name: Release local build cache before preserving the archive
+      - name: 导出后清理本地构建缓存
         if: steps.archive.outputs.found != 'true'
         run: docker buildx prune --all --force
-      - name: Preserve the immutable image in GHCR before publishing version tags
+      - name: 将固定摘要的镜像保存到 GHCR 以便重试
         if: steps.archive.outputs.found != 'true'
         run: python3 infra/docker/release-artifact.py save --name 'app-${{ matrix.arch }}.oci.tar'
 
   publish:
+    name: 发布多架构管理平台镜像
     needs: [resolve, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -161,24 +175,25 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - name: 检出已锁定的源码提交
+        uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.revision }}
-      - name: Use the preinstalled registry copy tool
+      - name: 准备镜像复制工具 Skopeo
         run: |
           if ! command -v skopeo >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends skopeo
           fi
-      - name: Authenticate publishing destinations
+      - name: 登录 GHCR 和 Docker Hub
         run: |
           printf '%s' "$GHCR_TOKEN" | skopeo login ghcr.io --username "$GHCR_USERNAME" --password-stdin
           printf '%s' "$DOCKERHUB_TOKEN" | skopeo login docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
-      - name: Restore immutable images from GHCR
+      - name: 从 GHCR 恢复两个架构的发布镜像
         run: |
           for arch in amd64 arm64; do
             python3 infra/docker/release-artifact.py restore --name "app-$arch.oci.tar" \
               --archive "artifacts/app-$arch/image.tar"
           done
-      - name: Publish immutable images, then update latest
+      - name: 向两个镜像仓库发布固定版本，再更新 latest 标签
         run: python3 -u infra/docker/release.py publish --artifacts artifacts

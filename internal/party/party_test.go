@@ -4,20 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"image"
-	"image/color"
-	"image/png"
 	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"net/textproto"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -205,7 +199,12 @@ func TestDeviceGrantInvitationQueuePlaybackAndRevocation(t *testing.T) {
 	f := newPartyFixture(t)
 	device, deviceID := f.device(t)
 	want(t, f.request(t, "GET", "/api/v1/tv/home", nil, "", true, false), 401)
-	want(t, f.request(t, "GET", "/api/v1/tv/home", nil, device, false, false), 200)
+	home := want(t, f.request(t, "GET", "/api/v1/tv/home", nil, device, false, false), 200)
+	if _, hasAppearance := home["appearance"]; hasAppearance || number(home, "totalSongs") != 2 || len(array(home, "recentSongs")) != 2 {
+		t.Fatal("unexpected TV home response", home)
+	}
+	want(t, f.request(t, "GET", "/api/v1/admin/tv-settings", nil, "", true, false), 404)
+	want(t, f.request(t, "GET", "/api/v1/tv/home/banners/builtin-01-blue-stage/image", nil, device, false, false), 404)
 	session := want(t, f.request(t, "POST", "/api/v1/tv/sessions", nil, device, false, false), 200)
 	sid := str(session, "id")
 	invite := want(t, f.request(t, "POST", "/api/v1/tv/sessions/"+sid+"/invitations", nil, device, false, false), 200)
@@ -376,69 +375,6 @@ func TestTextDecodingAndTimedLyrics(t *testing.T) {
 	}
 }
 
-func TestBannerUploadAndAuthorizedImageRoundTrip(t *testing.T) {
-	f := newPartyFixture(t)
-	device, _ := f.device(t)
-	settings := want(t, f.request(t, "GET", "/api/v1/admin/tv-settings", nil, "", true, false), 200)
-	for _, value := range array(settings, "banners") {
-		banner := value.(map[string]any)
-		settings = want(t, f.request(t, "DELETE", "/api/v1/admin/tv-settings/banners/"+str(banner, "id")+"?revision="+strconv.FormatInt(number(settings, "revision"), 10), nil, "", true, true), 200)
-	}
-	img := image.NewNRGBA(image.Rect(0, 0, 3, 2))
-	img.Set(1, 1, color.NRGBA{R: 200, G: 50, B: 20, A: 255})
-	var source bytes.Buffer
-	if e := png.Encode(&source, img); e != nil {
-		t.Fatal(e)
-	}
-	expected, e := normalizeImage(source.Bytes(), "image/png")
-	if e != nil {
-		t.Fatal(e)
-	}
-	var body bytes.Buffer
-	m := multipart.NewWriter(&body)
-	part, e := m.CreatePart(textproto.MIMEHeader{"Content-Disposition": {`form-data; name="file"; filename="banner.png"`}, "Content-Type": {"image/png"}})
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = part.Write(source.Bytes()); e != nil {
-		t.Fatal(e)
-	}
-	if e = m.Close(); e != nil {
-		t.Fatal(e)
-	}
-	csrf := want(t, f.request(t, "GET", "/api/v1/auth/csrf", nil, "", true, false), 200)
-	req, e := http.NewRequest("POST", f.server.URL+"/api/v1/admin/tv-settings/banners?revision="+strconv.FormatInt(number(settings, "revision"), 10), &body)
-	if e != nil {
-		t.Fatal(e)
-	}
-	req.Header.Set("Content-Type", m.FormDataContentType())
-	req.Header.Set("X-CSRF-Token", str(csrf, "token"))
-	upload, e := f.admin.Do(req)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer upload.Body.Close()
-	var saved document
-	if e = json.NewDecoder(upload.Body).Decode(&saved); e != nil {
-		t.Fatal(e)
-	}
-	if upload.StatusCode != 200 || len(array(saved, "banners")) != 1 {
-		t.Fatal(upload.StatusCode, saved)
-	}
-	banner := array(saved, "banners")[0].(map[string]any)
-	for _, query := range []struct {
-		path, token string
-		admin       bool
-	}{{str(banner, "imagePath"), "", true}, {"/api/v1/tv/home/banners/" + str(banner, "id") + "/image", device, false}} {
-		got := f.request(t, "GET", query.path, nil, query.token, query.admin, false)
-		data, ok := got.body.([]byte)
-		if got.status != 200 || !ok || !bytes.Equal(data, expected) || got.header.Get("Content-Type") != "image/jpeg" || got.header.Get("X-Content-Type-Options") != "nosniff" {
-			t.Fatalf("banner round trip failed: %d %v", got.status, got.header)
-		}
-	}
-	want(t, f.request(t, "GET", "/api/v1/tv/home/banners/"+str(banner, "id")+"/image", nil, "", false, false), 401)
-}
-
 type gonePlaybackError struct{}
 
 func (gonePlaybackError) Error() string   { return "播放资源已过期" }
@@ -487,9 +423,6 @@ func TestLibraryQueryBindingMatchesExistingClients(t *testing.T) {
 	}
 	want(t, f.request(t, "GET", "/api/v1/tv/library/songs?unclassified=maybe", nil, device, false, false), 400)
 	want(t, f.request(t, "GET", "/api/v1/tv/library/artists/any/images/PORTRAIT", nil, device, false, false), 400)
-	if validLabel(strings.Repeat("😀", 41), 80, false) {
-		t.Fatal("UTF-16 label boundary was not enforced")
-	}
 }
 
 type fakePrefetch struct {

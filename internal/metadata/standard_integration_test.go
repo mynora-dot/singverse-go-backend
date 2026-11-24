@@ -19,12 +19,12 @@ import (
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/testutil"
 )
 
-func TestV4OriginalAssetStableIdentityLyricsAndLocalDecisions(t *testing.T) {
-	exerciseV4OriginalAssets(t, setup(t))
+func TestShareArchiveOriginalAssetsStableIdentityLyricsAndLocalDecisions(t *testing.T) {
+	exerciseShareArchiveOriginalAssets(t, setup(t))
 }
-func TestMySQLV4OriginalAssetStableIdentityLyricsAndLocalDecisions(t *testing.T) {
+func TestMySQLShareArchiveOriginalAssetsStableIdentityLyricsAndLocalDecisions(t *testing.T) {
 	db, cfg := testutil.MySQLDatabase(t)
-	exerciseV4OriginalAssets(t, setupWithDatabase(t, db, "mysql", cfg))
+	exerciseShareArchiveOriginalAssets(t, setupWithDatabase(t, db, "mysql", cfg))
 }
 
 func TestWebPOriginalSurvivesSnapshotAndShare(t *testing.T) {
@@ -59,10 +59,10 @@ func TestWebPOriginalSurvivesSnapshotAndShare(t *testing.T) {
 	}
 	exportJob(t, f, source, nil)
 }
-func exerciseV4OriginalAssets(t *testing.T, f *fixture) {
+func exerciseShareArchiveOriginalAssets(t *testing.T, f *fixture) {
 	t.Helper()
 	ctx := context.Background()
-	source, ids := f.local(t, "歌 手-歌 曲 100%.mkv")
+	source, ids := f.local(t, "歌 手-歌 曲 100%.mkv", "共享封面.mkv", "另一张封面.mkv")
 	media := ids[0]
 	song, variant, e := f.lib.FormalIDs(ctx, f.db, media)
 	if e != nil {
@@ -73,6 +73,7 @@ func exerciseV4OriginalAssets(t *testing.T, f *fixture) {
 		t.Fatal(e)
 	}
 	original := append(pngBytes.Bytes(), bytes.Repeat([]byte{0}, metastandard.ChunkLimit+37)...)
+	second := tinyPNG(t)
 	e = store.WithinTx(ctx, f.db, func(tx store.DBTX) error {
 		a, e := f.lib.Formal().PutAsset(ctx, tx, original, "image/png")
 		if e != nil {
@@ -80,6 +81,19 @@ func exerciseV4OriginalAssets(t *testing.T, f *fixture) {
 		}
 		if e = f.lib.Formal().Decide(ctx, tx, song, map[string]any{"title": "正式订正", "referenceDurationMs": 456000, "cover": metastandard.AssetRef{AssetID: a.ID}}, metastandard.Origin{Kind: "MANUAL"}); e != nil {
 			return e
+		}
+		other, e := f.lib.Formal().PutAsset(ctx, tx, second, "image/png")
+		if e != nil {
+			return e
+		}
+		for i, assetID := range []string{a.ID, other.ID} {
+			songID, _, e := f.lib.FormalIDs(ctx, tx, ids[i+1])
+			if e != nil {
+				return e
+			}
+			if e = f.lib.Formal().Decide(ctx, tx, songID, map[string]any{"cover": metastandard.AssetRef{AssetID: assetID}}, metastandard.Origin{Kind: "MANUAL"}); e != nil {
+				return e
+			}
 		}
 		lyrics := map[string]any{"timing": "milliseconds", "lines": []any{map[string]any{"time": 0, "text": "第一句"}, map[string]any{"time": 1234, "text": "第二句"}}}
 		if e = f.lib.Formal().Decide(ctx, tx, variant, map[string]any{"lyrics": lyrics}, metastandard.Origin{Kind: "MANUAL"}); e != nil {
@@ -105,7 +119,7 @@ func exerciseV4OriginalAssets(t *testing.T, f *fixture) {
 	}
 	job := exportJob(t, f, source, nil)
 	id := text(job["id"])
-	if number(job["package_version"]) != 4 || number(job["part_count"]) < 3 {
+	if number(job["package_version"]) != shareArchiveVersion || number(job["part_count"]) != 0 {
 		t.Fatal(job)
 	}
 	w := httptest.NewRecorder()
@@ -121,22 +135,30 @@ func exerciseV4OriginalAssets(t *testing.T, f *fixture) {
 	if e = ValidateShareFile(path); e != nil {
 		t.Fatal(e)
 	}
-	if e = visitSharePackage(path, func(doc map[string]any) error {
-		for _, data := range doc["_v4Chunks"].(map[string][]byte) {
-			if len(data) > metastandard.ChunkLimit {
-				t.Fatal("oversized resource block")
-			}
-		}
-		return nil
-	}); e != nil {
+	z, e := zip.NewReader(bytes.NewReader(bundle), int64(len(bundle)))
+	if e != nil {
 		t.Fatal(e)
+	}
+	expected := map[string]bool{
+		"index.json": true, "records/000001.json": true,
+		shareAssetName(metastandard.Digest(original), "image/png"): true,
+		shareAssetName(metastandard.Digest(second), "image/png"):   true,
+	}
+	for _, file := range z.File {
+		if !expected[file.Name] {
+			t.Fatal("unexpected archive entry", file.Name)
+		}
+		delete(expected, file.Name)
+	}
+	if len(expected) != 0 {
+		t.Fatal("missing files from archive", expected)
 	}
 	// A new NAS reconstructs stable catalog identities without compute, access
 	// to the sender's source, or a platform/image cache.
 	receiver := setup(t)
 	target := newDAV(t, receiver, "own-root")
 	applied := applyWorkflow(t, receiver, target, bundle, "SUCCEEDED")
-	if number(applied["addedCount"]) != 1 {
+	if number(applied["addedCount"]) != 3 {
 		t.Fatal(applied)
 	}
 	receivedSong, receivedVariant, e := receiver.lib.FormalIDs(ctx, receiver.db, media)
@@ -224,7 +246,13 @@ func TestLegacyMigrationRetainsEvidenceAndValidFields(t *testing.T) {
 func TestV4IntegrityRejectsModifiedPart(t *testing.T) {
 	f := setup(t)
 	source, _ := f.local(t, "A-Song.mkv")
-	job := exportJob(t, f, source, nil)
+	job := request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs", nil, 202)
+	if _, e := f.db.Exec("UPDATE webdav_share_job SET package_version=4 WHERE id=?", job["id"]); e != nil {
+		t.Fatal(e)
+	}
+	if e := f.s.ProcessShare(t.Context()); e != nil {
+		t.Fatal(e)
+	}
 	index, e := f.s.shareIndex(context.Background(), source, text(job["id"]))
 	if e != nil {
 		t.Fatal(e)

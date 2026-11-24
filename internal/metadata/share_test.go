@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -91,41 +92,38 @@ func exerciseShareRoundTrip(t *testing.T, f *fixture) {
 		}
 	}
 	job := exportJob(t, f, source, nil)
-	if number(job["part_count"]) != 1 || number(job["processed_count"]) != 2 {
+	if number(job["package_version"]) != shareArchiveVersion || number(job["processed_count"]) != 2 {
 		t.Fatal(job)
 	}
 	jobID := text(job["id"])
-	part, e := f.s.shareFile(ctx, source, jobID, 1, false)
-	if e != nil {
-		t.Fatal(e)
+	wBase := httptest.NewRecorder()
+	f.router.ServeHTTP(wBase, httptest.NewRequest("GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+jobID+"/download", nil))
+	if wBase.Code != 200 {
+		t.Fatal(wBase.Code, wBase.Body.String())
 	}
-	b, e := os.ReadFile(part)
-	if e != nil {
-		t.Fatal(e)
+	bundle := wBase.Body.Bytes()
+	z, e := zip.NewReader(bytes.NewReader(bundle), int64(len(bundle)))
+	if e != nil || len(z.File) != 2 {
+		t.Fatalf("expected an index and one record page: %v", e)
 	}
-	doc, e := readManifest(b)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if len(array(doc["entries"])) != 2 || bytes.Contains(b, []byte("private-secret")) {
-		t.Fatal(doc)
-	}
-	z, _ := zip.NewReader(bytes.NewReader(b), int64(len(b)))
 	for _, file := range z.File {
+		if file.Name != "index.json" && file.Name != "records/000001.json" {
+			t.Fatal("unexpected archive entry", file.Name)
+		}
 		data, e := readZipFile(file, shareLimit)
 		if e != nil {
 			t.Fatal(e)
 		}
-		if bytes.Contains(data, []byte("private-user")) || bytes.Contains(data, []byte(f.cfg.MetadataPath)) {
-			t.Fatalf("private path leaked in %s", file.Name)
+		if bytes.Contains(data, []byte("private-user")) || bytes.Contains(data, []byte("private-secret")) || bytes.Contains(data, []byte(f.cfg.MetadataPath)) {
+			t.Fatalf("private data leaked in %s", file.Name)
 		}
 	}
 	target := newDAV(t, f, "target")
-	res, e := f.s.ImportPart(ctx, target, b)
+	res, e := f.s.ImportStream(ctx, target, bytes.NewReader(bundle))
 	if e != nil || res["imported"] != 2 {
 		t.Fatalf("%v %v", res, e)
 	}
-	again, e := f.s.ImportPart(ctx, target, b)
+	again, e := f.s.ImportStream(ctx, target, bytes.NewReader(bundle))
 	if e != nil || again["imported"] != 2 || again["processed"] != 2 {
 		t.Fatalf("receipt: %v %v", again, e)
 	}
@@ -138,39 +136,32 @@ func exerciseShareRoundTrip(t *testing.T, f *fixture) {
 	if a == nil || a.Origins["artists"].Kind != "SHARED" {
 		t.Fatalf("shared projection %#v", a)
 	}
-	wBase := httptest.NewRecorder()
-	f.router.ServeHTTP(wBase, httptest.NewRequest("GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+jobID+"/download", nil))
-	if wBase.Code != 200 {
-		t.Fatal(wBase.Code, wBase.Body.String())
-	}
-	if _, e = f.s.ImportStream(ctx, target, bytes.NewReader(wBase.Body.Bytes())); e != nil {
-		t.Fatal(e)
-	}
-	// A metadata edit is exported in an incremental part; removal is advisory only.
+	// A metadata edit is exported in the delta; removal is advisory only.
 	review := request(t, f.router, "GET", "/api/v1/metadata/songs/"+ids[0]+"/review", nil, 200)
 	request(t, f.router, "POST", "/api/v1/metadata/songs/"+ids[0]+"/review/apply", ReviewApply{RequestID: uuid(), Fingerprint: text(review["fingerprint"]), Version: text(review["version"]), Fields: []string{"title"}, Edits: map[string]any{"title": "Confirmed Updated"}}, 200)
 	if _, e = f.db.Exec("DELETE FROM media_song WHERE id=?", ids[1]); e != nil {
 		t.Fatal(e)
 	}
 	delta := exportJob(t, f, source, map[string]any{"baseId": jobID})
-	index, e := f.s.shareIndex(ctx, source, text(delta["id"]))
-	if e != nil || len(index["deletions"].([]string)) != 1 {
-		t.Fatalf("delta index %v %v", index, e)
-	}
-	advisory, e := f.s.shareFile(ctx, source, text(delta["id"]), 1, true)
-	if e != nil {
-		t.Fatal(e)
-	}
-	deleted, e := os.ReadFile(advisory)
-	if e != nil || !bytes.Contains(deleted, []byte(`"advisoryOnly":true`)) {
-		t.Fatalf("%s %v", deleted, e)
-	}
 	w := httptest.NewRecorder()
 	f.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+text(delta["id"])+"/download", nil))
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	outer := w.Body.Bytes()
+	z, e = zip.NewReader(bytes.NewReader(outer), int64(len(outer)))
+	if e != nil {
+		t.Fatal(e)
+	}
+	advisory, e := z.Open("deletions/000001.json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	deleted, e := io.ReadAll(advisory)
+	advisory.Close()
+	if e != nil || !bytes.Contains(deleted, []byte(`"advisoryOnly":true`)) {
+		t.Fatalf("%s %v", deleted, e)
+	}
 	result, e := f.s.ImportStream(ctx, target, bytes.NewReader(outer))
 	if e != nil || result["imported"] != 1 {
 		t.Fatalf("set import %v %v", result, e)
@@ -178,6 +169,41 @@ func exerciseShareRoundTrip(t *testing.T, f *fixture) {
 	songs = request(t, f.router, "GET", "/api/v1/media-sources/"+target+"/songs", nil, 200)
 	if number(songs["totalElements"]) != 2 {
 		t.Fatal("advisory removed existing song", songs)
+	}
+	var changed bytes.Buffer
+	writer := zip.NewWriter(&changed)
+	for _, file := range z.File {
+		if file.Name != "records/000001.json" {
+			if e = writer.Copy(file); e != nil {
+				t.Fatal(e)
+			}
+			continue
+		}
+		data, e := readZipFile(file, shareLimit)
+		if e != nil {
+			t.Fatal(e)
+		}
+		altered := bytes.Replace(data, []byte("Confirmed Updated"), []byte("Modified Metadata"), 1)
+		if bytes.Equal(data, altered) || len(data) != len(altered) {
+			t.Fatal("test must change a record without changing its length")
+		}
+		entry, e := writer.Create(file.Name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = entry.Write(altered); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e = writer.Close(); e != nil {
+		t.Fatal(e)
+	}
+	alteredArchive := filepath.Join(t.TempDir(), "altered.zip")
+	if e = os.WriteFile(alteredArchive, changed.Bytes(), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e = ValidateShareFile(alteredArchive); e == nil || !strings.Contains(e.Error(), "SHA-256") {
+		t.Fatal("changed record was not rejected by its checksum", e)
 	}
 }
 
@@ -335,7 +361,7 @@ func TestShareValidationAndCoverHash(t *testing.T) {
 	}
 }
 
-func TestShareExportResumesSavedPartAndRejectsManagedSymlink(t *testing.T) {
+func TestShareArchiveRetriesFromFrozenSnapshotAndRejectsManagedSymlink(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	names := []string{}
@@ -364,16 +390,22 @@ func TestShareExportResumesSavedPartAndRejectsManagedSymlink(t *testing.T) {
 		t.Fatal("expected export checkpoint failure")
 	}
 	job = request(t, f.router, "GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+id, nil, 200)
-	if job["state"] != "FAILED" || number(job["part_count"]) != 1 || number(job["processed_count"]) <= 0 || number(job["processed_count"]) >= 80 {
+	if job["state"] != "FAILED" || number(job["part_count"]) != 0 || number(job["processed_count"]) <= 0 || number(job["processed_count"]) >= 80 {
 		t.Fatal("missing saved checkpoint", job)
 	}
-	firstPath, e := f.s.shareFile(ctx, source, id, 1, false)
+	folder, e := f.s.shareFolder(id)
 	if e != nil {
 		t.Fatal(e)
 	}
-	first, e := os.ReadFile(firstPath)
-	if e != nil {
-		t.Fatal(e)
+	files, e := os.ReadDir(folder)
+	if e != nil || len(files) != 0 {
+		t.Fatal("failed job published an archive or left a temporary file", files, e)
+	}
+	downloadURL := "/api/v1/media-sources/" + source + "/embedded-metadata/share-jobs/" + id + "/download"
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, httptest.NewRequest("GET", downloadURL, nil))
+	if w.Code != http.StatusConflict {
+		t.Fatal("download available before commit", w.Code)
 	}
 	if _, e = f.db.Exec("DROP TRIGGER reject_finished_export"); e != nil {
 		t.Fatal(e)
@@ -383,37 +415,21 @@ func TestShareExportResumesSavedPartAndRejectsManagedSymlink(t *testing.T) {
 		t.Fatal(e)
 	}
 	job = request(t, f.router, "GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+id, nil, 200)
-	if job["state"] != "SUCCEEDED" || number(job["part_count"]) != 2 || number(job["processed_count"]) != 80 {
+	if job["state"] != "SUCCEEDED" || number(job["part_count"]) != 0 || number(job["processed_count"]) != 80 {
 		t.Fatal(job)
 	}
-	after, e := os.ReadFile(firstPath)
-	if e != nil || !bytes.Equal(first, after) {
-		t.Fatal("saved part changed", e)
+	files, e = os.ReadDir(folder)
+	if e != nil || len(files) != 1 || files[0].Name() != shareArchiveName {
+		t.Fatal("expected one persisted ZIP", files, e)
 	}
-	seen := map[string]bool{}
-	for part := 1; part <= 2; part++ {
-		p, e := f.s.shareFile(ctx, source, id, part, false)
-		if e != nil {
-			t.Fatal(e)
-		}
-		b, e := os.ReadFile(p)
-		if e != nil {
-			t.Fatal(e)
-		}
-		doc, e := readManifest(b)
-		if e != nil {
-			t.Fatal(e)
-		}
-		for _, raw := range array(doc["entries"]) {
-			relative := text(raw.(map[string]any)["path"])
-			if seen[relative] {
-				t.Fatal("duplicate after resume", relative)
-			}
-			seen[relative] = true
-		}
-	}
-	if len(seen) != 80 {
-		t.Fatal("lost entries", len(seen))
+	pages, count := 0, 0
+	e = visitValidatedShareFile(filepath.Join(folder, shareArchiveName), func(doc map[string]any) error {
+		pages++
+		count += len(array(doc["entries"]))
+		return nil
+	}, nil)
+	if e != nil || pages < 2 || count != 80 {
+		t.Fatal("record pages lost after retry", pages, count, e)
 	}
 	outside := t.TempDir()
 	if e = os.Symlink(outside, filepath.Join(f.cfg.MetadataPath, "library", "linked")); e != nil {

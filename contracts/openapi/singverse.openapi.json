@@ -11596,9 +11596,6 @@
                       "type": "string",
                       "format": "date-time"
                     },
-                    "appearance": {
-                      "$ref": "#/components/schemas/TvHomeAppearance"
-                    },
                     "featuredPlaylists": {
                       "type": "array",
                       "maxItems": 4,
@@ -15525,10 +15522,10 @@
             "description": "Invalid package"
           },
           "413": {
-            "description": "Outer upload exceeds 8 GiB or a nested part exceeds 32 MiB compressed/expanded."
+            "description": "ZIP upload or v5 expanded content exceeds 8 GiB, or an individual file exceeds its format limit."
           }
         },
-        "description": "v2/v3/v4 ZIP supported; bounded durable receipts retain completed work if interrupted. Prefer import-jobs for upload/preview/background processing and verification. Complete share sets advance the shared baseline only after all parts succeed. Single advanced v3 parts do not establish a complete delta baseline. Deletions are advisory."
+        "description": "v2 through v5 ZIPs are supported. Durable receipts retain completed work if interrupted. Prefer import-jobs for background processing and verification. Complete share sets advance the shared baseline after the entire archive succeeds. Deletions are advisory."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/share-jobs": {
@@ -15570,7 +15567,7 @@
             }
           }
         },
-        "description": "Local/WebDAV durable export. Default v4 full sets freeze Metadata Schema 1.0 documents, stable identities and original attachments at fixed revisions. Resources are deduplicated and split into at most 16 MiB chunks; each ZIP part is at most 32 MiB. Sets are bounded to 8 GiB, 100000 entries and 4096 parts. Optional baseId creates a delta. Logical roots and relative paths bind to the recipient configuration. No media bytes, private source roots, credentials or temporary links are exported. Existing v2/v3 exports can resume."
+        "description": "Local/WebDAV durable export. v5 uses one ZIP containing an index, record pages and deduplicated original attachments. The archive is limited to 8 GiB and 100000 media entries. Optional baseId creates a delta. The package stores relative media paths and portable metadata."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/share-jobs/latest": {
@@ -15652,6 +15649,7 @@
     "/api/v1/media-sources/{id}/embedded-metadata/share-jobs/{jobId}/index": {
       "get": {
         "operationId": "getShareExportIndex",
+        "description": "Available for legacy exports. Download the complete ZIP for v5 exports.",
         "parameters": [
           {
             "in": "path",
@@ -15680,6 +15678,7 @@
     "/api/v1/media-sources/{id}/embedded-metadata/share-jobs/{jobId}/parts/{part}": {
       "get": {
         "operationId": "getShareExportPart",
+        "description": "Available for legacy exports. Download the complete ZIP for v5 exports.",
         "parameters": [
           {
             "in": "path",
@@ -15717,6 +15716,7 @@
     "/api/v1/media-sources/{id}/embedded-metadata/share-jobs/{jobId}/deletions/{part}": {
       "get": {
         "operationId": "getShareDeletionAdvisory",
+        "description": "Available for legacy exports. Download the complete ZIP for v5 exports.",
         "parameters": [
           {
             "in": "path",
@@ -15774,7 +15774,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Streamed ZIP containing index and bounded package ZIPs; unpack once before import",
+            "description": "Complete share ZIP, ready to upload as downloaded. v5 stores record JSON and original attachments directly in the archive.",
             "content": {
               "application/zip": {
                 "schema": {
@@ -17649,358 +17649,6 @@
             "description": "凭据无效或授权失效"
           }
         }
-      }
-    },
-    "/api/v1/admin/tv-settings": {
-      "get": {
-        "operationId": "getTvSettings",
-        "tags": [
-          "TV settings"
-        ],
-        "summary": "Read shared television personalization settings",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TvHomeAppearance"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported image"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "CSRF failed or device identity required"
-          },
-          "404": {
-            "description": "Image absent, removed or disabled"
-          },
-          "409": {
-            "description": "Settings changed; reload before retry"
-          }
-        },
-        "description": "Untouched settings (revision 0 and no banners) are initialized once with eight enabled built-in music-themed JPEG covers embedded in the Go service. Existing personalization is preserved; removed covers are not restored on restart. Built-in covers support the same rename, ordering, enable and delete operations and count toward the eight-cover limit."
-      },
-      "put": {
-        "operationId": "saveTvSettings",
-        "tags": [
-          "TV settings"
-        ],
-        "summary": "Atomically save text, carousel behavior, enabled flags and banner order",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TvHomeAppearance"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported image"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "CSRF failed or device identity required"
-          },
-          "404": {
-            "description": "Image absent, removed or disabled"
-          },
-          "409": {
-            "description": "Settings changed; reload before retry"
-          }
-        },
-        "parameters": [
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TvHomeAppearance"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/tv-settings/banners": {
-      "post": {
-        "operationId": "uploadTvHomeBanner",
-        "tags": [
-          "TV settings"
-        ],
-        "summary": "Upload one JPEG/PNG <=2,000,000 bytes, <=4096px; normalize to JPEG <=1280px. Maximum eight images. Immediately saved and enabled.",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TvHomeAppearance"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported image"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "CSRF failed or device identity required"
-          },
-          "404": {
-            "description": "Image absent, removed or disabled"
-          },
-          "409": {
-            "description": "Settings changed; reload before retry"
-          }
-        },
-        "parameters": [
-          {
-            "name": "revision",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "file"
-                ],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/tv-settings/banners/{id}": {
-      "delete": {
-        "operationId": "removeTvHomeBanner",
-        "tags": [
-          "TV settings"
-        ],
-        "summary": "Delete a stored image with revision check",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TvHomeAppearance"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported image"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "CSRF failed or device identity required"
-          },
-          "404": {
-            "description": "Image absent, removed or disabled"
-          },
-          "409": {
-            "description": "Settings changed; reload before retry"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "revision",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/v1/admin/tv-settings/banners/{id}/image": {
-      "get": {
-        "operationId": "getAdminTvHomeBanner",
-        "tags": [
-          "TV settings"
-        ],
-        "summary": "Read a stored image including disabled images",
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "image/jpeg": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported image"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "CSRF failed or device identity required"
-          },
-          "404": {
-            "description": "Image absent, removed or disabled"
-          },
-          "409": {
-            "description": "Settings changed; reload before retry"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/v1/tv/home/banners/{id}/image": {
-      "get": {
-        "operationId": "getTvHomeBanner",
-        "tags": [
-          "TV settings"
-        ],
-        "summary": "Read an enabled homepage image; only authorized television devices",
-        "security": [
-          {
-            "TvBearer": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "image/jpeg": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported image"
-          },
-          "401": {
-            "description": "Authentication required"
-          },
-          "403": {
-            "description": "CSRF failed or device identity required"
-          },
-          "404": {
-            "description": "Image absent, removed or disabled"
-          },
-          "409": {
-            "description": "Settings changed; reload before retry"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
       }
     },
     "/api/v1/transcoding/cache": {
@@ -22581,10 +22229,10 @@
             "description": "Workflow state, source binding, revision or baseline conflict"
           },
           "413": {
-            "description": "8 GiB total/32 MiB part/5000 entries per part exceeded"
+            "description": "ZIP upload exceeds 8 GiB"
           }
         },
-        "description": "After HTTP 202 the durable job runs independently of the browser. Accepts v2, v3 and v4 packages, one active import per source, up to 100000 songs. After offline validation, auto mode queues the job. Preview mode waits for apply. Both modes save metadata offline and verify WebDAV paths and known sizes through directory listings. Parsing and application checkpoints survive restart."
+        "description": "After HTTP 202 the durable job runs independently of the browser. Accepts v2 through v5 packages, one active import per source, up to 100000 songs. After offline validation, auto mode queues the job. Preview mode waits for apply. Both modes save metadata offline and verify WebDAV paths and known sizes through directory listings. Parsing and application checkpoints survive restart."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs/latest": {
@@ -34175,81 +33823,6 @@
           "separation": {
             "type": "object",
             "description": "Version 1 profile readiness, independent CPU and accelerator runtime identities, model-qualified backends, and qualification operation state."
-          }
-        }
-      },
-      "TvHomeBanner": {
-        "type": "object",
-        "required": [
-          "id",
-          "label",
-          "enabled",
-          "version",
-          "imagePath"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 80
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "version": {
-            "type": "string",
-            "readOnly": true
-          },
-          "imagePath": {
-            "type": "string",
-            "readOnly": true,
-            "description": "Authenticated same-origin image path; no filesystem path."
-          }
-        }
-      },
-      "TvHomeAppearance": {
-        "type": "object",
-        "required": [
-          "revision",
-          "headline",
-          "subtitle",
-          "autoRotate",
-          "rotationSeconds",
-          "banners"
-        ],
-        "properties": {
-          "revision": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "headline": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 80
-          },
-          "subtitle": {
-            "type": "string",
-            "maxLength": 160
-          },
-          "autoRotate": {
-            "type": "boolean"
-          },
-          "rotationSeconds": {
-            "type": "integer",
-            "minimum": 5,
-            "maximum": 60
-          },
-          "banners": {
-            "type": "array",
-            "maxItems": 8,
-            "items": {
-              "$ref": "#/components/schemas/TvHomeBanner"
-            },
-            "description": "Array order is display order. TV omits disabled entries. PUT must include exactly current banner IDs; upload/remove are separate revision-checked operations."
           }
         }
       },

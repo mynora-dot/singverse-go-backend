@@ -70,7 +70,7 @@ make docker-build COMPONENT_LOCK=/absolute/path/to/components.lock.json
 
 业务镜像使用 `SINGVERSE_VERSION`，计算镜像使用独立的 `COMPUTE_VERSION`。默认只启动 Go；compute 仍通过 profile 显式启用。项目名 `singverse-go-app` 及现有命名卷保留，源码路线仅构建本仓库的 Go 镜像。
 
-正式镜像同步发布到 GitHub GHCR、Docker Hub。`platform-release` 仅在发布正式 GitHub Release 后运行，版本来自标签，目标空间来自仓库 Variables；普通 push/PR 不触发，不运行测试、lint 或独立 verify。部署 `.env` 的 `IMAGE_PREFIX` 对应所选平台的域名/命名空间，详细凭据与镜像地址见[发布配置](infra/docker/PUBLISHING.md)，切换步骤见[运维说明](infra/docker/OPERATIONS.md)。
+正式镜像同步发布到 GitHub GHCR、Docker Hub。「SingVerse 平台镜像发布」仅在发布正式 GitHub Release 后运行，版本来自标签，目标空间来自仓库 Variables；普通 push/PR 不触发，不运行测试、lint 或独立 verify。部署 `.env` 的 `IMAGE_PREFIX` 对应所选平台的域名/命名空间，详细凭据与镜像地址见[发布配置](infra/docker/PUBLISHING.md)，切换步骤见[运维说明](infra/docker/OPERATIONS.md)。
 
 ## 客户端分发
 

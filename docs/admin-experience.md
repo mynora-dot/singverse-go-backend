@@ -6,15 +6,15 @@
 
 ## 信息架构与导航
 
-主导航五项用普通用户词汇：**首页 · 曲库 · 加歌 · 整理 · 客厅**；顶栏右侧为任务中心（活跃数徽章）与设置两个 utility 入口。手机导航面板列出全部入口。二级导航只展示当前工作区，技术细节折叠进「高级 / 技术信息」。**全部页面路径保持兼容**，名称与组织改变；旧深链按下方规则解析。
+主导航五项为 **首页 · 曲库 · 加歌 · 整理 · 客厅**。顶栏右侧提供任务中心（活跃数徽章）与设置入口。手机导航面板列出全部入口。二级导航只展示当前工作区，技术细节折叠进「高级 / 技术信息」。旧链接的兼容规则见下文。
 
-| 导航 | 子入口（路径全部沿用） |
+| 导航 | 子入口 |
 |---|---|
 | 首页 `#/overview` | 曲库脉搏 · 正在处理 · 接下来做什么 · 快捷入口 · 亲友票根卡 |
 | 曲库 `#/library/songs` | 歌曲 `#/library/songs` · 歌手 `#/library/artists` · 歌单 `#/library/playlists` · 分类标签 `#/library/classification` |
 | 加歌 `#/library/media` | 歌曲来源 `#/library/media` · 下载歌曲 `#/library/downloads` · 文件名识别 `#/library/media/recognition` |
 | 整理 `#/library/songs/metadata` | 歌曲信息 `#/library/songs/metadata` · 原唱与伴奏 `#/library/audio-processing` · 待审核 `#/library/review` |
-| 客厅 `#/system/tv-settings` | 电视首页 `#/system/tv-settings` · 播放与热门 `#/library/playback-history` · 缺歌心愿 `#/library/missing-feedback` |
+| 客厅 `#/library/playback-history` | 播放与热门 `#/library/playback-history` · 客户端下载 `#/system/client-downloads` |
 | utility | 任务中心 `#/system/tasks`（活跃徽章，30s 轮询 size=1，隐藏暂停、未登录不轮询）· 设置 `#/system/parameters` |
 | 设置组 | 账号与安全 · 音乐平台 `#/system/music-platforms` · 存储与缓存 `#/library/cache` · 计算与模型 `#/system/compute` · AI 与助手 `#/system/ai` · 服务状态 `#/system` |
 
@@ -62,7 +62,6 @@
 | 单曲 / 批量伴奏、方案与成果 | 原唱与伴奏 → 歌曲 / 处理记录 | 明确范围 → 试片段 / 方案 → 确认 → 后台整曲生成 → 成果版本试听 |
 | 原片、HLS、兼容播放、离线版本 | 歌曲 → 播放 / 播放设置 | 保留原播放器与授权编排；关闭、切歌、音轨切换释放资源并保持必要播放位置 |
 | 电视登录 | 电视端 → 账号登录 | 输入 NAS 地址和账号密码直接登录；启用二次验证时保留验证。网页端电视连接与授权管理页已移除 |
-| 电视封面、文案、轮播、预览 | 客厅 → 电视首页 `#/system/tv-settings` | 草稿即时预览 → 保存；图片上传单独保存，排序 / 开关需确认保存 |
 | 热门、实际播放、单曲历史 | 客厅 → 播放与热门 `#/library/playback-history` | 按时间 / 关键词查询，单曲抽屉展示全时段历史；不把入队次数当作实际播放 |
 | 缺歌登记与处理 | 客厅 → 缺歌心愿 `#/library/missing-feedback` | 登记 → 跟进处理状态 → 链接补齐；保留原有状态与操作 |
 | 任务批次、明细、进度、业务跳转 | 顶栏任务 `#/system/tasks`、`#/system/tasks/:id` | 未完成优先，区分整批与扫描自身；未知进度不填百分比；具体操作回到关联业务页 |

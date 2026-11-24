@@ -377,9 +377,9 @@ func (s *Service) sharedSnapshot(ctx context.Context, tx store.DBTX, id string) 
 }
 
 func sharedIdentity(doc map[string]any) (string, int64, error) {
-	if number(doc["version"]) == 4 {
+	if number(doc["version"]) >= 4 {
 		if revision, ok := doc["collectionRevision"].(string); !ok || !metastandard.ValidRevision(revision) {
-			return "", 0, bad("v4 修订号必须为字符串")
+			return "", 0, bad("资料包修订号必须为字符串")
 		}
 	}
 	if number(doc["version"]) == 2 {
@@ -394,7 +394,7 @@ func sharedIdentity(doc map[string]any) (string, int64, error) {
 }
 
 func (s *Service) checkSharedBaseline(ctx context.Context, tx store.DBTX, source string, doc map[string]any) error {
-	if number(doc["version"]) == 4 && text(doc["contentDigest"]) != "" {
+	if number(doc["version"]) >= 4 && text(doc["contentDigest"]) != "" {
 		if e := s.library.Formal().CheckPackage(ctx, tx, text(doc["collectionId"]), text(doc["collectionRevision"]), text(doc["contentDigest"])); e != nil {
 			return e
 		}
@@ -434,9 +434,12 @@ func (s *Service) saveSharedBaseline(ctx context.Context, tx store.DBTX, source 
 
 // normalizeSharedAssets keeps only validated content-addressed references in
 // persistent import entries, rather than duplicating a cover for every song.
-func (s *Service) normalizeSharedAssets(doc map[string]any) error {
-	if number(doc["version"]) == 4 {
-		return s.installV4Resources(s.ctx, doc)
+func (s *Service) normalizeSharedAssets(ctx context.Context, doc map[string]any) error {
+	switch number(doc["version"]) {
+	case shareArchiveVersion:
+		return nil
+	case 4:
+		return s.installV4Resources(ctx, doc)
 	}
 	if raw := doc["assets"]; raw != nil {
 		assets, ok := raw.(map[string]any)

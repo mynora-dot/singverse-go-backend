@@ -87,9 +87,6 @@ func New(db *sqlx.DB, dialect string, cfg config.Config, lib Library, log *slog.
 	}
 	s := &Service{db: db, dialect: dialect, cfg: cfg, library: lib, log: log, q: q, now: time.Now, slots: map[string]*prefetchSlot{}, stop: make(chan struct{})}
 	_, err = s.transact(context.Background(), func(tx store.DBTX) (any, error) {
-		if err := s.seedHomeBanners(context.Background(), tx); err != nil {
-			return nil, err
-		}
 		return s.serverInfo(context.Background(), tx)
 	})
 	if err == nil {

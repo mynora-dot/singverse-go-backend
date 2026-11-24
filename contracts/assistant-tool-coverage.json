@@ -158,17 +158,10 @@
       "mode": "READ"
     },
     {
-      "name": "tv_settings",
-      "title": "查询电视设置",
-      "group": "客厅",
-      "page": "/system/tv-settings",
-      "mode": "READ"
-    },
-    {
       "name": "devices_list",
       "title": "查询电视设备",
       "group": "客厅",
-      "page": "/system/tv-settings",
+      "page": "/system/assistant",
       "mode": "READ"
     },
     {
@@ -347,13 +340,6 @@
       "mode": "CONFIRM"
     },
     {
-      "name": "tv_settings_update",
-      "title": "更新电视文字与轮播设置",
-      "group": "客厅",
-      "page": "/system/tv-settings",
-      "mode": "CONFIRM"
-    },
-    {
       "name": "song_editor_form",
       "title": "歌曲编辑与移除",
       "group": "曲库",
@@ -439,14 +425,6 @@
       "group": "整理",
       "page": "/library/audio-processing",
       "scope": "批量音轨识别、伴奏方案、模型安装、音轨修正和转码配置；文件通过现有表单上传",
-      "mode": "FORM"
-    },
-    {
-      "name": "tv_banner_form",
-      "title": "电视与设备管理表单",
-      "group": "客厅",
-      "page": "/system/tv-settings",
-      "scope": "上传轮播图、排序和电视设备管理；设备登录凭据通过原流程生成",
       "mode": "FORM"
     },
     {
@@ -648,14 +626,11 @@
       ]
     },
     {
-      "feature": "电视与设备",
-      "page": "/system/tv-settings",
-      "scope": "读取配置与设备、修改文字和轮播；图片上传排序及设备撤销经表单",
+      "feature": "电视设备",
+      "page": "/system/assistant",
+      "scope": "查询电视设备与连接状态",
       "tools": [
-        "tv_settings",
-        "devices_list",
-        "tv_settings_update",
-        "tv_banner_form"
+        "devices_list"
       ]
     },
     {

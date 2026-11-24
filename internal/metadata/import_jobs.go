@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"io"
@@ -381,7 +382,7 @@ func jobManifest(job map[string]any) map[string]any {
 		version = 3
 	}
 	rev := any(job["collection_revision"])
-	if version == 4 {
+	if version >= 4 {
 		rev = strconv.FormatInt(number(job["collection_revision"]), 10)
 	}
 	return map[string]any{"version": version, "collectionId": job["collection_id"], "collectionRevision": rev, "setId": job["snapshot_id"], "baseId": job["base_id"], "contentDigest": job["content_digest"]}
@@ -502,7 +503,7 @@ func (s *Service) prepareImport(ctx context.Context, job map[string]any) error {
 			return e
 		}
 		doc["_leaseOwner"] = id
-		if e := s.normalizeSharedAssets(doc); e != nil {
+		if e := s.normalizeSharedAssets(ctx, doc); e != nil {
 			return e
 		}
 		if len(manifest) == 0 {
@@ -528,6 +529,8 @@ func (s *Service) prepareImport(ctx context.Context, job map[string]any) error {
 			}
 		}
 		return nil
+	}, func(_ string, mime string, data []byte) error {
+		return s.installShareAsset(ctx, id, mime, data)
 	})
 	if e != nil {
 		return e
@@ -865,9 +868,8 @@ func (s *Service) validateVerificationSource(ctx context.Context, tx store.DBTX,
 	return nil
 }
 
-// visitSharePackage validates the outer container before processing bounded
-// inner manifests. No filename from a ZIP is ever extracted as a local path.
-func visitSharePackage(filename string, visit func(map[string]any) error) error {
+// visitSharePackage reads bounded records and assets without extracting ZIP paths.
+func visitSharePackage(filename string, visit func(map[string]any) error, install func(string, string, []byte) error) error {
 	f, e := os.Open(filename)
 	if e != nil {
 		return e
@@ -880,14 +882,23 @@ func visitSharePackage(filename string, visit func(map[string]any) error) error 
 	if st.Size() > uploadLimit {
 		return &problem{413, "分享包超过 8 GiB"}
 	}
-	z, e := checkedZip(f, st.Size(), 30001)
+	z, e := checkedZip(f, st.Size(), shareArchiveFiles)
 	if e != nil {
 		return e
 	}
 	if len(z.File) == 0 {
 		return bad("分享包为空")
 	}
-	if z.File[0].Name != "index.json" {
+	var indexFile *zip.File
+	for _, file := range z.File {
+		if file.Name == "index.json" {
+			if indexFile != nil {
+				return bad("资料包包含重复清单")
+			}
+			indexFile = file
+		}
+	}
+	if indexFile == nil {
 		if st.Size() > shareLimit {
 			return &problem{413, "索引包最多 32 MiB"}
 		}
@@ -902,7 +913,7 @@ func visitSharePackage(filename string, visit func(map[string]any) error) error 
 		doc["completeSnapshot"] = doc["part"] == nil
 		return visit(doc)
 	}
-	b, e := readZipFile(z.File[0], 1024*1024)
+	b, e := readZipFile(indexFile, metastandard.MaxJSON)
 	if e != nil {
 		return e
 	}
@@ -911,7 +922,13 @@ func visitSharePackage(filename string, visit func(map[string]any) error) error 
 		return bad(e.Error())
 	}
 	index, ok := rawIndex.(map[string]any)
-	if !ok || index["format"] != "singverse-share-set" || (number(index["version"]) != 2 && number(index["version"]) != 3 && number(index["version"]) != 4) {
+	if !ok || index["format"] != "singverse-share-set" {
+		return bad("分享清单无效")
+	}
+	if number(index["version"]) == shareArchiveVersion {
+		return visitShareArchive(index, indexFile, z, visit, install)
+	}
+	if indexFile != z.File[0] || len(b) > 1<<20 || (number(index["version"]) != 2 && number(index["version"]) != 3 && number(index["version"]) != 4) {
 		return bad("分享清单无效")
 	}
 	if number(index["version"]) == 4 {
@@ -983,24 +1000,13 @@ func visitSharePackage(filename string, visit func(map[string]any) error) error 
 				return e
 			}
 		}
-		parsedHint, parseErr := metastandard.Parse(raw)
-		hint, validHint := parsedHint.(map[string]any)
-		if parseErr != nil || !validHint || hint["advisoryOnly"] != true {
-			return bad("删除提示无效")
+		count, e := countShareDeletionHints(raw)
+		if e != nil {
+			return e
 		}
-		paths, ok := hint["paths"].([]any)
-		if !ok {
-			return bad("删除提示无效")
-		}
-		for _, v := range paths {
-			relative, ok := v.(string)
-			if !ok || !validPortablePath(relative) {
-				return bad("删除提示路径无效")
-			}
-			deletionCount++
-			if deletionCount > 100000 {
-				return bad("删除提示过多")
-			}
+		deletionCount += count
+		if deletionCount > shareArchiveRecords {
+			return bad("删除提示过多")
 		}
 	}
 	for _, file := range z.File[1:] {
@@ -1042,6 +1048,25 @@ func visitSharePackage(filename string, visit func(map[string]any) error) error 
 		return visit(map[string]any{"format": "singverse-media-index", "version": index["version"], "collectionId": index["collectionId"], "collectionRevision": index["collectionRevision"], "setId": index["id"], "baseId": index["baseId"], "entries": []any{}, "deletionHints": deletionCount, "completeSnapshot": true, "metadataSchema": index["metadataSchema"], "contentDigest": index["contentDigest"]})
 	}
 	return nil
+}
+
+func countShareDeletionHints(data []byte) (int64, error) {
+	raw, e := metastandard.Parse(data)
+	hint, ok := raw.(map[string]any)
+	if e != nil || !ok || hint["advisoryOnly"] != true {
+		return 0, bad("删除提示无效")
+	}
+	paths, ok := hint["paths"].([]any)
+	if !ok || len(paths) > shareArchiveRecords {
+		return 0, bad("删除提示无效")
+	}
+	for _, v := range paths {
+		relative, ok := v.(string)
+		if !ok || !validPortablePath(relative) {
+			return 0, bad("删除提示路径无效")
+		}
+	}
+	return int64(len(paths)), nil
 }
 
 func (s *Service) rebindSource(c *gin.Context) {

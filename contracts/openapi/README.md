@@ -124,7 +124,7 @@ WebDAV 使用保存的地址和加密凭据在服务端发起 GET/HEAD，转发 
 
 ### TV 首页与当前歌曲详情
 
-`GET /api/v1/tv/home` 仅设备可读，返回稳定服务身份 `server`、全库现存歌曲数 `totalSongs`、按扫描时间倒序/ID 升序的前 8 首 `recentSongs` 和 `generatedAt`。它不接收找歌筛选参数，不以推荐、热度或演唱历史名义包装扫描顺序。
+`GET /api/v1/tv/home` 仅设备可读，返回稳定服务身份 `server`、全库现存歌曲数 `totalSongs`、按扫描时间倒序/ID 升序的前 8 首 `recentSongs`、最多 4 个共享歌单 `featuredPlaylists` 和 `generatedAt`。它不接收找歌筛选参数，不以推荐、热度或演唱历史名义包装扫描顺序。
 
 `GET /api/v1/tv/library/songs/{id}` 读取当前歌曲展示投影，歌曲移除返回 404。投影沿用已应用元数据/文件标签与文件名解析的现有优先级，新增可用的 album、releaseDate、durationMs、scannedAt 与不透明 revision；无依据字段省略或 null，不补假值。revision 包含元数据和分类变化，供封面重载使用，不暴露路径或来源凭据。所有设备/参与者仍遵循现有授权；首页不对参与者开放。
 
@@ -161,15 +161,6 @@ compute 内部 `/internal/v1/audio-roles/tasks` 接收固定 UUID、mode=PROBE|A
 `/api/v1/audio-processing` 为管理员伴奏中心：歌曲分页筛选、持久批次预览/提交/详情/取消/重试、单项取消、当前节点及模型下载/导入/试跑/选择。变更请求继续使用管理员会话和CSRF；上传按固定 `model` 参数接受有界原始权重或多文件模型 ZIP，省略参数兼容 htdemucs。基准上限 100MiB，htdemucs-openvino 上限 128MiB，未知模型及超限拒绝。compute内部 `/internal/v1/audio-roles/models` 使用Bearer鉴权；原有单曲音轨接口保留。除 RKNN 外，模型下载仅使用固定清单。RKNN 模型 `uvr-mdxnet-9482-rknn` 下载请求体为 `{url,sha256}`，由管理员显式提供公网 HTTPS ZIP 地址和完整包的 SHA-256，不保存来源或传递内部认证头；重定向逐次校验公网地址。RKNN 离线导入与下载使用同一 ZIP 校验、安装流程，上限 512MiB。单芯片包根目录恰好包含 `manifest.json`、`uvr.rknn`；多芯片包可包含 `rk3566/`、`rk3568/`、`rk3588/` 目录，每个目录各有同名文件，按当前板型选择一组。模型须匹配固定 UVR 源摘要、工具链 2.3.2、当前芯片及声明的大小和 SHA-256；不接受路径穿越、重复或额外文件、加密及符号链接。安装成功不代表推理资格通过；已有模型不被不同内容覆盖，试跑与 CPU 降级设置保持独立。
 
 节点响应保留原 `model` 字段，并增加 `models`、`build` 和 `deployment`；后端支持 `openvino`，当前镜像未包含时返回 `IMAGE_MISSING`。可用资格绑定构建、运行库、设备与模型摘要；变更后须重新试跑。镜像构建及模型安装不等于硬件通过验收。
-
-## 电视首页个性化
-
-Go 服务内嵌8张音乐主题默认封面，无需外部图片服务。首次启动仅在首页 revision=0 且无封面时原子初始化并启用，既有设置与图片不覆盖；改名、排序、停用、移除沿用现有接口，删除后重启不补回。默认图片来源及提示词见 [封面资源说明](https://github.com/mynora-dot/singverse-go-backend/blob/6d3b86f4c0ee18c5b1c1120a5ab884f3dbc3656a/internal/party/assets/home/README.md)。
-
-新增`/api/v1/admin/tv-settings`及封面上传/删除/图片接口：管理员Cookie读取，写入再验证CSRF与全局revision；上限8张JPEG/PNG，单张2,000,000字节、4096像素，归一为最长边1280px的JPEG。上传即保存并启用；PUT完整保存文案、轮播设置与全部已有图片的启停/顺序，不能通过PUT增删图片。冲突409，不静默覆盖。
-
-`GET /api/v1/tv/home`兼容增加`appearance`与`featuredPlaylists`，后者最多4个已保存共享歌单；配置按数组顺序提供已启用图片。`GET /api/v1/tv/home/banners/{id}/image`只接受已授权device，不接受亲友participant；删除或禁用404。全部图片接口no-store，元数据含稳定内容版本，TV可自行有界缓存。没有公开静态图片路径或外部URL代理。
-
 
 ## 歌曲缓存（HLS 与原片）
 
@@ -240,7 +231,7 @@ Nginx 为上述两个批量写入接口单独允许 128 KiB 请求，以容纳 1
 
 ## 媒体资料导入与来源入库
 
-来源创建可选 `startScan` 和 WebDAV 的 `autoExtractEmbedded`；省略时保持旧客户端只保存的行为。后台导入使用 `embedded-metadata/import-jobs` 上传、预览、映射、确认、查询、取消与重试，返回 lower camelCase 的 `MediaImportJob`；上传参数 `applyMode=auto` 表示离线解析后自动入库，默认 `preview` 等待确认并允许调整目录。HTTP 202 后由服务端独立续跑并核验目录。`rebind` 保留歌曲身份与本地订正，单独重新核验媒体。默认共享 v4 使用稳定系列、版本与正式对象，兼容 v2/v3 导入；默认完整 ZIP，增量要求匹配基线，旧版本拒绝，删除提示不自动应用。v4 字段与附件规则见[v4 资料包规范](../metadata/package-v4.md)。
+来源创建可选 `startScan` 和 WebDAV 的 `autoExtractEmbedded`；省略时保持旧客户端只保存的行为。后台导入使用 `embedded-metadata/import-jobs` 上传、预览、映射、确认、查询、取消与重试，返回 lower camelCase 的 `MediaImportJob`；上传参数 `applyMode=auto` 表示离线解析后自动入库，默认 `preview` 等待确认并允许调整目录。HTTP 202 后由服务端独立续跑并核验目录。`rebind` 保留歌曲身份与本地订正，单独重新核验媒体。默认共享 v5 将稳定系列、版本、正式对象和附件写入一个 ZIP。导入支持 v2 至 v5，增量要求匹配基线，删除提示供接收方查看。
 
 导入任务新增可选 `inputState`（`RETAINED` / `PENDING` / `RELEASED`）、`inputCleanupError`、`inputCleanupAfter`，单独表示上传 ZIP 的保留与回收；资料条目、附件引用和基线全部持久化后即可回收 ZIP，核验、取消后恢复和显式重试读取持久化记录。清理失败延后自动重试，不改变导入结果或重复应用资料。确认 WebDAV 导入后先离线保存元数据与附件，再自动进入 `VERIFYING`。后台根据父目录清单核验相对路径及已知大小，记录条目结果后任务返回 `SUCCEEDED`。旧版已停在 `SUCCEEDED/IMPORTED` 的任务仍可通过 `POST .../retry` 发起首次核验。每轮核验只列举每个父目录一次，失败保存到条目，显式重试仅重查失败项；相同 URL 更换账号时全部重新核验。`pathOnlyCount` 是 `presentCount` 中未校验大小的数量，样本可返回 `verification` 与 `verificationLevel`（`PATH_ONLY` / `PATH_AND_SIZE` / `null`），避免将未知大小当作大小一致。
 
@@ -253,7 +244,7 @@ Nginx 为上述两个批量写入接口单独允许 128 KiB 请求，以容纳 1
 
 `POST /metadata/assets` 以原始二进制保存附件（32 MiB 上限）；`GET /metadata/assets/{sha256}` 读取持久资源。先完成持久保存才允许正式引用；封面或歌词原文的类型必须与引用字段相符。`GET /metadata/entities/{mediaId}/lyrics` 读取版本正式歌词或本机歌词原文，不需要回源媒体或 compute。
 
-旧 `/media-songs`、审核、封面、播放歌词 API 使用正式资料适配层。默认分享升级 v4，兼容 v2/v3 导入；资料语义版本 1.0 与容器版本 4 独立演进，详见[v4 格式](../metadata/package-v4.md)。包内不含私有根目录和凭据，接收方绑定自己的 LOCAL/WEBDAV 来源。接口字段及错误响应已录入 `singverse.openapi.json`。
+旧 `/media-songs`、审核、封面、播放歌词 API 使用正式资料适配层。资料语义版本 1.0 与容器版本独立演进。当前导出使用 [v5 单层 ZIP](../metadata/package-v5.md)。包内不含私有根目录和凭据，接收方绑定自己的 LOCAL/WEBDAV 来源。接口字段及错误响应已录入 `singverse.openapi.json`。
 
 
 ## 客户端发行与在线更新

@@ -35,7 +35,7 @@ SSE `id` 为运行内递增序号，`event: message` 的 JSON 是 `{runId,sequen
 
 ## 工具与模型
 
-覆盖清单为 `assistant-tool-coverage.json`，共 68 项：36 个查询、14 个确认写入、18 个既有表单导航。FORM 只返回页面入口和说明。密码、MFA、密钥、配对、文件或音源脚本使用原表单；部分复杂编辑和审核也明确引导表单。
+覆盖清单 `assistant-tool-coverage.json` 包含 35 个查询、13 个确认写入和 17 个表单导航。FORM 只返回页面入口和说明。密码、MFA、密钥、配对、文件和音源脚本通过原表单处理。部分复杂编辑和审核也通过表单完成。
 
 Eino ADK 固定 v0.9.23，使用原生 AgenticMessage、Runner、ToolSearch、流式事件和中断恢复。模型请求最多暴露 9 个工具，单次运行最多 24 轮、10 分钟。模型查询结果和上下文有窗口限制，不改变完整历史持久化保留。
 

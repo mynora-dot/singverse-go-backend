@@ -108,11 +108,8 @@ func (s *Service) createShare(c *gin.Context) {
 		if len(active) >= 8 {
 			return conflict("分享导出队列已满")
 		}
-		a := map[string]any{"id": id, "sourceId": sourceID, "binding": hash(text(source["location"])), "baseId": base, "now": now()}
+		a := map[string]any{"id": id, "sourceId": sourceID, "binding": hash(text(source["location"])), "baseId": base, "version": shareArchiveVersion, "now": now()}
 		if _, e = s.exec(ctx, tx, "share-insert", a); e != nil {
-			return e
-		}
-		if _, e = s.exec(ctx, tx, "v4-share-version", a); e != nil {
 			return e
 		}
 
@@ -213,6 +210,9 @@ func (s *Service) shareIndex(ctx context.Context, source, id string) (map[string
 	if e != nil {
 		return nil, e
 	}
+	if number(job["package_version"]) == shareArchiveVersion {
+		return nil, missing("资料包清单位于完整 ZIP 内")
+	}
 	folder, folderErr := s.shareFolder(id)
 	if folderErr != nil {
 		return nil, folderErr
@@ -255,6 +255,9 @@ func (s *Service) shareFile(ctx context.Context, source, id string, part int, de
 	job, e := s.shareJob(ctx, s.db, source, id)
 	if e != nil {
 		return "", e
+	}
+	if number(job["package_version"]) == shareArchiveVersion {
+		return "", missing("资料包可以通过完整 ZIP 下载")
 	}
 	if part < 1 || part > 100000 || !deletion && int64(part) > number(job["part_count"]) {
 		return "", missing("分享分片尚未生成")
@@ -318,6 +321,10 @@ func (s *Service) downloadShare(c *gin.Context) {
 		s.fail(c, conflict("分享包仍在生成"))
 		return
 	}
+	if number(job["package_version"]) == shareArchiveVersion {
+		s.downloadShareArchive(c, id)
+		return
+	}
 	index, e := s.shareIndex(ctx, source, id)
 	if e != nil {
 		s.fail(c, e)
@@ -374,6 +381,31 @@ func (s *Service) downloadShare(c *gin.Context) {
 	if e != nil || closeErr != nil {
 		s.log.Error("share download interrupted")
 	}
+}
+
+func (s *Service) downloadShareArchive(c *gin.Context, id string) {
+	folder, e := s.shareFolder(id)
+	if e != nil {
+		s.fail(c, e)
+		return
+	}
+	path := filepath.Join(folder, shareArchiveName)
+	st, e := os.Lstat(path)
+	if e != nil || !st.Mode().IsRegular() {
+		s.fail(c, missing("资料包不可用"))
+		return
+	}
+	f, e := os.Open(path)
+	if e != nil {
+		s.fail(c, missing("资料包不可用"))
+		return
+	}
+	defer f.Close()
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", "attachment; filename=singverse-share-set.zip")
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	http.ServeContent(c.Writer, c.Request, filepath.Base(path), st.ModTime(), f)
 }
 func (s *Service) shareLoop() {
 	defer s.wg.Done()
@@ -508,7 +540,7 @@ func (s *Service) freezeShare(ctx context.Context, tx store.DBTX, job map[string
 			if e != nil {
 				return e
 			}
-			if number(job["package_version"]) == 4 {
+			if number(job["package_version"]) >= 4 {
 				docs, e := s.portableDocuments(ctx, tx, text(row["id"]))
 				if e != nil {
 					return e

@@ -4,12 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
-	"github.com/cloudwego/eino/schema"
 	"github.com/mynora-dot/singverse-go-backend/internal/assistant"
 	"github.com/mynora-dot/singverse-go-backend/internal/background"
-	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
 )
 
 // Only the owning business service controls a task. The generic task service
@@ -47,30 +44,6 @@ func assistantProcessingTools(v *applicationServices) []assistant.Definition {
 		}, func(ctx context.Context, a toolArgs, _ string, _ assistant.Preview) (any, error) {
 			r, e := v.curation.ControlClassificationTask(ctx, a.text("id"), a.text("action"))
 			return taskResult(r, "CLASSIFICATION", a.text("id"), e)
-		}),
-		writeTool("tv_settings_update", "更新电视文字与轮播设置", "客厅", "/system/tv-settings", "更新电视首页文字和轮播间隔，已有图片保留；上传及排序图片请打开电视设置", toolParameters{"revision": numberParam("查询电视设置获得的修订号", true), "headline": stringParam("电视标题，1～80 字", true), "subtitle": stringParam("电视说明，最多 160 字，可为空", true), "autoRotate": {Type: schema.Boolean, Required: true}, "rotationSeconds": numberParam("轮播间隔，5～60 秒", true)}, func(ctx context.Context, a toolArgs) (any, any, error) {
-			if e := validateTV(a); e != nil {
-				return nil, nil, e
-			}
-			current, e := v.devices.TVSettings(ctx)
-			if e != nil {
-				return nil, nil, e
-			}
-			if current.Revision != int64(a.number("revision", 0)) {
-				return nil, nil, invalidTool("电视设置已变化，请重新查询")
-			}
-			return current, map[string]any{"headline": a.text("headline"), "subtitle": a.text("subtitle"), "autoRotate": a.boolean("autoRotate"), "rotationSeconds": a.number("rotationSeconds", 0)}, nil
-		}, func(ctx context.Context, a toolArgs, _ string, _ assistant.Preview) (any, error) {
-			current, e := v.devices.TVSettings(ctx)
-			if e != nil {
-				return nil, e
-			}
-			current.Revision = int64(a.number("revision", 0))
-			current.Headline = a.text("headline")
-			current.Subtitle = a.text("subtitle")
-			current.AutoRotate = a.boolean("autoRotate")
-			current.RotationSeconds = a.number("rotationSeconds", 0)
-			return v.devices.SaveTVSettings(ctx, current)
 		}),
 		readTool("task_items", "查询任务逐项结果", "任务", "/system/tasks", "读取指定后台任务的逐曲结果、失败原因和真实入库标识", toolParameters{"id": stringParam("后台任务中心的真实标识", true), "page": numberParam("从 0 开始", false)}, func(ctx context.Context, a toolArgs) (any, error) {
 			return v.tasks.TaskItems(ctx, a.text("id"), a.number("page", 0), 50)
@@ -125,11 +98,4 @@ func stableBatch(value any) map[string]any {
 		}
 	}
 	return out
-}
-
-func validateTV(a toolArgs) error {
-	if strings.TrimSpace(a.text("headline")) == "" || search.UTF16Length(a.text("headline")) > 80 || search.UTF16Length(a.text("subtitle")) > 160 || a.number("rotationSeconds", 0) < 5 || a.number("rotationSeconds", 0) > 60 {
-		return invalidTool("电视标题最多 80 字、说明最多 160 字，轮播间隔为 5～60 秒")
-	}
-	return nil
 }

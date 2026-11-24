@@ -197,8 +197,7 @@ func assistantTools(v *applicationServices) []assistant.Definition {
 		}),
 		readTool("audio_batch", "查询音频批次明细", "任务", "/library/audio-processing", "查看真实处理进度与逐曲结果", idParameters(), func(ctx context.Context, a toolArgs) (any, error) { return processing.AudioBatch(ctx, a.text("id")) }),
 		readTool("transcodes_list", "查询离线转码", "整理", "/library/audio-processing", "查看已经创建的转码任务与结果", nil, func(ctx context.Context, _ toolArgs) (any, error) { return processing.OfflineTranscodes(ctx) }),
-		readTool("tv_settings", "查询电视设置", "客厅", "/system/tv-settings", "查看电视首页标题、轮播和图片配置", nil, func(ctx context.Context, _ toolArgs) (any, error) { return v.devices.TVSettings(ctx) }),
-		readTool("devices_list", "查询电视设备", "客厅", "/system/tv-settings", "只读列出电视设备与连接状态，不读取设备凭据", nil, func(ctx context.Context, _ toolArgs) (any, error) { return v.devices.Devices(ctx) }),
+		readTool("devices_list", "查询电视设备", "客厅", "/system/assistant", "只读列出电视设备与连接状态，不读取设备凭据", nil, func(ctx context.Context, _ toolArgs) (any, error) { return v.devices.Devices(ctx) }),
 		readTool("playback_summary", "查询播放与热门统计", "客厅", "/library/playback-history", "最近 30 天的真实播放统计", nil, func(ctx context.Context, _ toolArgs) (any, error) { return v.activity.Summary30d(ctx) }),
 		readTool("feedback_list", "查询缺歌心愿", "客厅", "/library/missing-feedback", "查询缺歌反馈、处理情况和关联歌曲", toolParameters{"q": stringParam("歌名或歌手关键词", false), "status": enumParam("默认 ALL", false, "ALL", "PENDING", "PROCESSING", "RESOLVED", "CLOSED"), "page": numberParam("从 0 开始", false)}, func(ctx context.Context, a toolArgs) (any, error) {
 			status := a.text("status")
@@ -250,7 +249,6 @@ func assistantTools(v *applicationServices) []assistant.Definition {
 		{"classification_editor_form", "分类与标签编辑", "曲库", "/library/classification", "编辑、停用标签和歌曲分类，审核建议、恢复历史或启动分类批次"},
 		{"artist_images_form", "歌手图片管理", "整理", "/library/artists", "上传、比较及审核歌手图片，管理自动抓图和批次"},
 		{"audio_processing_form", "音频处理工作台", "整理", "/library/audio-processing", "批量音轨识别、伴奏方案、模型安装、音轨修正和转码配置；文件通过现有表单上传"},
-		{"tv_banner_form", "电视与设备管理表单", "客厅", "/system/tv-settings", "上传轮播图、排序和电视设备管理；设备登录凭据通过原流程生成"},
 		{"client_downloads_form", "客户端下载信息", "客厅", "/system/client-downloads", "查看当前随服务提供的手机及电视客户端下载包和安装说明"},
 		{"music_platform_form", "音乐平台配置表单", "系统", "/system/music-platforms", "配置匹配平台、自动写入和抓图服务；密钥通过已有表单保存"},
 		{"cache_settings_form", "缓存设置与清理表单", "系统", "/library/cache", "核对缓存范围后清理，调整目录、容量及缓存策略"},

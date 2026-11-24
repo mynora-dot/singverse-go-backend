@@ -53,7 +53,7 @@ func (s *Service) importDocument(ctx context.Context, sourceID string, document 
 		return nil, e
 	}
 	if number(document["version"]) == 4 {
-		if e = s.normalizeSharedAssets(document); e != nil {
+		if e = s.normalizeSharedAssets(ctx, document); e != nil {
 			return nil, e
 		}
 	}
@@ -152,7 +152,7 @@ func (s *Service) importDocument(ctx context.Context, sourceID string, document 
 			return nil, conflict("分享导入进度无效")
 		}
 		if cursor == len(entries) {
-			if document["part"] == nil {
+			if document["part"] == nil && number(document["version"]) != shareArchiveVersion {
 				if e = s.saveSharedBaseline(ctx, s.db, sourceID, document); e != nil {
 					return nil, e
 				}
@@ -304,6 +304,8 @@ func (s *Service) ImportStream(ctx context.Context, sourceID string, input io.Re
 		}
 		manifest = doc
 		return nil
+	}, func(owner, mime string, data []byte) error {
+		return s.installShareAsset(ctx, owner, mime, data)
 	})
 	if e != nil {
 		return nil, e

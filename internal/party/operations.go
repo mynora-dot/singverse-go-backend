@@ -2,17 +2,10 @@ package party
 
 import (
 	"context"
+
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
 
-func (s *Service) TVSettings(ctx context.Context) (Settings, error) {
-	return s.settings(ctx, s.db, false)
-}
-func (s *Service) SaveTVSettings(ctx context.Context, in Settings) (Settings, error) {
-	var out Settings
-	_, e := s.transact(ctx, func(tx store.DBTX) (any, error) { var e error; out, e = s.saveSettings(ctx, tx, in); return nil, e })
-	return out, e
-}
 func (s *Service) Devices(ctx context.Context) ([]map[string]any, error) {
 	docs, e := s.list(ctx, s.db, "device")
 	if e != nil {

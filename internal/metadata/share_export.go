@@ -27,6 +27,9 @@ func (s *Service) exportShare(ctx context.Context, job map[string]any) (err erro
 			}
 		}
 	}()
+	if number(job["package_version"]) == shareArchiveVersion {
+		return s.exportShareArchive(ctx, job)
+	}
 	if number(job["package_version"]) == 4 {
 		return s.exportV4(ctx, job)
 	}
@@ -176,6 +179,12 @@ func (s *Service) exportShare(ctx context.Context, job map[string]any) (err erro
 	return nil
 }
 func (s *Service) writeDeletions(ctx context.Context, job map[string]any, folder string) error {
+	return s.visitShareDeletionPages(ctx, job, func(part int, paths []string) error {
+		return atomicWrite(filepath.Join(folder, fmt.Sprintf("deletions-%06d.json", part)), []byte(encode(map[string]any{"advisoryOnly": true, "paths": paths})))
+	})
+}
+
+func (s *Service) visitShareDeletionPages(ctx context.Context, job map[string]any, visit func(int, []string) error) error {
 	base := text(job["base_id"])
 	if base == "" {
 		return nil
@@ -200,7 +209,7 @@ func (s *Service) writeDeletions(ctx context.Context, job map[string]any, folder
 			cursor = text(row["song_id"])
 		}
 		part++
-		if e = atomicWrite(filepath.Join(folder, fmt.Sprintf("deletions-%06d.json", part)), []byte(encode(map[string]any{"advisoryOnly": true, "paths": paths}))); e != nil {
+		if e = visit(part, paths); e != nil {
 			return e
 		}
 	}

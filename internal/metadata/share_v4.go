@@ -229,23 +229,15 @@ func (s *Service) exportV4(ctx context.Context, job map[string]any) error {
 		estimated := 0
 		nextCursor := cursor
 		for _, row := range rows {
-			var snapshot map[string]any
-			if e = decode(row["result_json"], &snapshot); e != nil {
+			item, e := portableShareEntry(row)
+			if e != nil {
 				return e
-			}
-			docs, ok := snapshot["documents"].([]any)
-			if !ok {
-				return bad("缺少正式资料快照")
-			}
-			item := map[string]any{"rootId": "media", "path": row["relative_path"], "mediaId": row["song_id"], "documents": docs}
-			if row["file_size"] != nil {
-				item["size"] = row["file_size"]
 			}
 			cost := len(encode(item))
 			if len(entries) > 0 && estimated+cost > 12<<20 {
 				break
 			}
-			for _, raw := range docs {
+			for _, raw := range array(item["documents"]) {
 				d, e := metastandard.Decode([]byte(encode(raw)))
 				if e != nil {
 					return e
@@ -301,6 +293,22 @@ func (s *Service) exportV4(ctx context.Context, job map[string]any) error {
 			return e
 		}
 	}
+}
+
+func portableShareEntry(row map[string]any) (map[string]any, error) {
+	var snapshot map[string]any
+	if e := decode(row["result_json"], &snapshot); e != nil {
+		return nil, e
+	}
+	docs, ok := snapshot["documents"].([]any)
+	if !ok {
+		return nil, bad("缺少正式资料快照")
+	}
+	item := map[string]any{"rootId": "media", "path": row["relative_path"], "mediaId": row["song_id"], "documents": docs}
+	if row["file_size"] != nil {
+		item["size"] = row["file_size"]
+	}
+	return item, nil
 }
 
 // unpackV4 validates every record before it can reach a preview. Binary chunks
@@ -388,66 +396,73 @@ func unpackV4(doc map[string]any, z *zip.Reader) error {
 		}
 	}
 	for _, raw := range array(doc["entries"]) {
-		item, ok := raw.(map[string]any)
-		if !ok || item["rootId"] != "media" || !metastandard.ValidPath(text(item["path"])) || !mediaPath(text(item["path"])) || !metastandard.UUID.MatchString(text(item["mediaId"])) {
-			return bad("媒体记录或路径无效")
-		}
-		if e := onlyKeys(item, "rootId", "path", "size", "mediaId", "documents"); e != nil {
+		if _, e := unpackPortableEntry(raw); e != nil {
 			return e
 		}
-		if _, e := shareSize(item["size"]); e != nil {
-			return e
-		}
-		records, ok := item["documents"].([]any)
-		if !ok || len(records) < 3 || len(records) > 256 {
-			return bad("正式资料关联无效")
-		}
-		seen := map[string]metastandard.Document{}
-		for _, raw := range records {
-			d, e := metastandard.Decode([]byte(encode(raw)))
-			if e != nil {
-				return bad(e.Error())
-			}
-			if _, exists := seen[d.ID]; exists {
-				return bad("对象标识重复")
-			}
-			seen[d.ID] = d
-		}
-		for _, record := range seen {
-			for id, kind := range metastore.ReferenceIDs(record) {
-				if seen[id].Type != kind {
-					return bad("资料关联不存在或类型不符")
-				}
-			}
-		}
-		m := seen[text(item["mediaId"])]
-		v := seen[m.ParentID]
-		song := seen[v.ParentID]
-		if m.Type != "MEDIA" || v.Type != "VARIANT" || song.Type != "SONG" {
-			return bad("歌曲、版本与媒体关联缺失")
-		}
-		// Legacy adapter data is derived from the validated formal document;
-		// clients cannot submit a contradictory second copy of the values.
-		metadata := map[string]any{"tags": map[string]any{}, "documents": records, "portableMediaId": m.ID}
-		tags := metadata["tags"].(map[string]any)
-		for _, d := range []metastandard.Document{song, v} {
-			for _, f := range []string{"title", "artists", "album", "releaseDate"} {
-				if value, exists := d.Fields[f]; exists {
-					tags[f] = value
-				}
-			}
-		}
-		if lyrics := v.Fields["lyrics"]; lyrics != nil {
-			metadata["lyrics"] = lyrics
-		}
-		if aliases := song.Fields["aliases"]; aliases != nil {
-			metadata["aliases"] = aliases
-		}
-		metadata["referenceDurationMs"] = song.Fields["referenceDurationMs"]
-		item["metadata"] = metadata
 	}
 	doc["_v4Chunks"] = chunks
 	return nil
+}
+
+func unpackPortableEntry(raw any) (map[string]metastandard.Document, error) {
+	item, ok := raw.(map[string]any)
+	if !ok || item["rootId"] != "media" || !metastandard.ValidPath(text(item["path"])) || !mediaPath(text(item["path"])) || !metastandard.UUID.MatchString(text(item["mediaId"])) {
+		return nil, bad("媒体记录或路径无效")
+	}
+	if e := onlyKeys(item, "rootId", "path", "size", "mediaId", "documents"); e != nil {
+		return nil, e
+	}
+	if _, e := shareSize(item["size"]); e != nil {
+		return nil, e
+	}
+	records, ok := item["documents"].([]any)
+	if !ok || len(records) < 3 || len(records) > 256 {
+		return nil, bad("正式资料关联无效")
+	}
+	seen := map[string]metastandard.Document{}
+	for _, raw := range records {
+		d, e := metastandard.Decode([]byte(encode(raw)))
+		if e != nil {
+			return nil, bad(e.Error())
+		}
+		if _, exists := seen[d.ID]; exists {
+			return nil, bad("对象标识重复")
+		}
+		seen[d.ID] = d
+	}
+	for _, record := range seen {
+		for id, kind := range metastore.ReferenceIDs(record) {
+			if seen[id].Type != kind {
+				return nil, bad("资料关联不存在或类型不符")
+			}
+		}
+	}
+	m := seen[text(item["mediaId"])]
+	v := seen[m.ParentID]
+	song := seen[v.ParentID]
+	if m.Type != "MEDIA" || v.Type != "VARIANT" || song.Type != "SONG" {
+		return nil, bad("歌曲、版本与媒体关联缺失")
+	}
+	// Legacy adapter data is derived from the validated formal document;
+	// clients cannot submit a contradictory second copy of the values.
+	metadata := map[string]any{"tags": map[string]any{}, "documents": records, "portableMediaId": m.ID}
+	tags := metadata["tags"].(map[string]any)
+	for _, d := range []metastandard.Document{song, v} {
+		for _, f := range []string{"title", "artists", "album", "releaseDate"} {
+			if value, exists := d.Fields[f]; exists {
+				tags[f] = value
+			}
+		}
+	}
+	if lyrics := v.Fields["lyrics"]; lyrics != nil {
+		metadata["lyrics"] = lyrics
+	}
+	if aliases := song.Fields["aliases"]; aliases != nil {
+		metadata["aliases"] = aliases
+	}
+	metadata["referenceDurationMs"] = song.Fields["referenceDurationMs"]
+	item["metadata"] = metadata
+	return seen, nil
 }
 
 func (s *Service) installV4Resources(ctx context.Context, doc map[string]any) error {
@@ -491,13 +506,7 @@ func (s *Service) installV4Resources(ctx context.Context, doc map[string]any) er
 		if metastandard.Digest(combined.Bytes()) != text(r["id"]) {
 			return bad("原始附件摘要不匹配")
 		}
-		if e := s.transaction(ctx, func(tx store.DBTX) error {
-			a, e := s.library.Formal().PutAsset(ctx, tx, combined.Bytes(), text(r["mime"]))
-			if e != nil {
-				return e
-			}
-			return s.leaseV4Asset(ctx, tx, leaseOwner(doc), a.ID)
-		}); e != nil {
+		if e := s.installShareAsset(ctx, leaseOwner(doc), text(r["mime"]), combined.Bytes()); e != nil {
 			return e
 		}
 	}
@@ -524,6 +533,16 @@ func (s *Service) installV4Resources(ctx context.Context, doc map[string]any) er
 func (s *Service) leaseV4Asset(ctx context.Context, tx store.DBTX, owner, id string) error {
 	_, e := s.exec(ctx, tx, "v4-lease", map[string]any{"owner": owner, "asset": id, "expiry": metastore.LeaseExpiry()})
 	return e
+}
+
+func (s *Service) installShareAsset(ctx context.Context, owner, mime string, data []byte) error {
+	return s.transaction(ctx, func(tx store.DBTX) error {
+		asset, e := s.library.Formal().PutAsset(ctx, tx, data, mime)
+		if e != nil {
+			return e
+		}
+		return s.leaseV4Asset(ctx, tx, owner, asset.ID)
+	})
 }
 
 func fileDigest(path string) (string, int64, error) {
@@ -658,20 +677,28 @@ func checkV4Part(index map[string]any, name string, data []byte) error {
 // ValidateShareFile is usable without a database or running service. Temporary
 // chunk files bound memory to one original resource, including very large sets.
 func ValidateShareFile(filename string) error {
-	return visitValidatedShareFile(filename, func(map[string]any) error { return nil })
+	return visitValidatedShareFile(filename, func(map[string]any) error { return nil }, nil)
 }
-func visitValidatedShareFile(filename string, visit func(map[string]any) error) error {
-	folder, e := os.MkdirTemp("", "singverse-validate-*")
-	if e != nil {
-		return e
-	}
-	defer os.RemoveAll(folder)
+func visitValidatedShareFile(filename string, visit func(map[string]any) error, install func(string, string, []byte) error) error {
+	var folder string
+	defer func() {
+		if folder != "" {
+			_ = os.RemoveAll(folder)
+		}
+	}()
 	known := map[string]bool{}
 	records := map[string]string{}
 	resources := map[string]string{}
 	return visitSharePackage(filename, func(doc map[string]any) error {
 		if number(doc["version"]) != 4 {
 			return visit(doc)
+		}
+		if folder == "" {
+			var e error
+			folder, e = os.MkdirTemp("", "singverse-validate-*")
+			if e != nil {
+				return e
+			}
 		}
 		chunks, _ := doc["_v4Chunks"].(map[string][]byte)
 		for id, data := range chunks {
@@ -721,14 +748,9 @@ func visitValidatedShareFile(filename string, visit func(map[string]any) error) 
 				if e != nil {
 					return e
 				}
-				digest, e := metastandard.DocumentDigest([]byte(encode(d)))
-				if e != nil {
+				if e = checkPortableDocumentDigest(records, d); e != nil {
 					return e
 				}
-				if prior := records[d.ID]; prior != "" && prior != digest {
-					return bad("同一对象在包中出现不同内容")
-				}
-				records[d.ID] = digest
 				for _, id := range metastandard.AssetIDs(d) {
 					if !known[id] {
 						return bad("缺少被引用的完整附件")
@@ -765,7 +787,19 @@ func visitValidatedShareFile(filename string, visit func(map[string]any) error) 
 			}
 		}
 		return visit(doc)
-	})
+	}, install)
+}
+
+func checkPortableDocumentDigest(records map[string]string, doc metastandard.Document) error {
+	digest, e := metastandard.DocumentDigest([]byte(encode(doc)))
+	if e != nil {
+		return e
+	}
+	if prior := records[doc.ID]; prior != "" && prior != digest {
+		return bad("同一对象在包中出现不同内容")
+	}
+	records[doc.ID] = digest
+	return nil
 }
 
 func (s *Service) applyV4Documents(ctx context.Context, tx store.DBTX, media string, snapshot map[string]any, collection string, rev int64) ([]string, error) {

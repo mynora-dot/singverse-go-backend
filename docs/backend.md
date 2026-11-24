@@ -64,7 +64,7 @@ SINGVERSE_COMPUTE_PROJECT=/absolute/checkout make go-compute-check # 显式固�
 SINGVERSE_COMPUTE_PROJECT=/absolute/checkout make backend-check # Go 检查及真实联动；Python 检查在 compute 仓库执行
 ```
 
-`internal/library` 测试覆盖来源/规则/扫描原子发布、WebDAV 范围与本地下载并发；`internal/metadata` 覆盖人工字段保护、平台/封面安全、有限回源授权、任务恢复、共享分片检查点与导入收据；歌曲元数据支持网易云、QQ、酷狗、酷我、汽水、咪咕，平台封面保留原图或所选高清版本，不再受 4096 像素门槛影响（网络读取 32 MiB / 20 秒，上传与持久保存统一支持 32 MiB）。歌手图片支持网易云、QQ、酷狗、酷我、汽水和 TheAudioDB；酷狗复用元数据平台设置，酷我/汽水读取公开歌手目录，同名歧义继续确认候选，测试覆盖长 ID、歌曲核对、受限图片下载及批次确认入库。其他模块覆盖认证、TV/H5、分类、队列、AI、下载、播放、缓存及持久后台投影。本轮实测与限制见[验证记录](verification.md)；[Go 迁移历史记录](go-migration-verification.md)只说明拆分前的对应版本。
+`internal/library` 测试覆盖来源/规则/扫描原子发布、WebDAV 范围与本地下载并发；`internal/metadata` 覆盖人工字段保护、平台/封面安全、有限回源授权、任务恢复、资料包往返、导出重试与导入收据；歌曲元数据支持网易云、QQ、酷狗、酷我、汽水、咪咕，平台封面保留原图或所选高清版本，不再受 4096 像素门槛影响（网络读取 32 MiB / 20 秒，上传与持久保存统一支持 32 MiB）。歌手图片支持网易云、QQ、酷狗、酷我、汽水和 TheAudioDB；酷狗复用元数据平台设置，酷我/汽水读取公开歌手目录，同名歧义继续确认候选，测试覆盖长 ID、歌曲核对、受限图片下载及批次确认入库。其他模块覆盖认证、TV/H5、分类、队列、AI、下载、播放、缓存及持久后台投影。本轮实测与限制见[验证记录](verification.md)；[Go 迁移历史记录](go-migration-verification.md)只说明拆分前的对应版本。
 
 `go-container-check` 默认检查单业务镜像 `singverse:local`，可用 `GO_BACKEND_IMAGE` 指定已构建的架构镜像；不会拉取或构建镜像。恢复检查拒绝运行中部署锁和非 TTY 输入，验证口令隐藏、会话撤销、MFA 清除及业务数据/主密钥保留。
 
@@ -75,7 +75,7 @@ SINGVERSE_COMPUTE_PROJECT=/absolute/checkout make backend-check # Go 检查及�
 生产默认 Dockerfile 为 `infra/docker/build/app.Dockerfile`，Compose 为 `infra/docker/compose/compose.yaml`，项目名 `singverse-go-app` 保留既有 Go 命名卷身份。首次从 Java 切换时使用独立 Go 数据，不迁移旧 Java 账号或库，不允许两种实现共享写入后的数据库。旧数据保护与明确回退见 [迁移说明](go-migration.md)。本机管理员恢复为停止服务后 `bin/singverse --reset-admin`，需真实终端，见 [认证说明](authentication.md)。
 
 
-媒体来源新增持久化入库启动请求与资料包后台工作流：上传完成后解析、路径映射预览、确认后按字段合并并持久保存。WebDAV 资料包先离线保存，随后自动按父目录列举文件，核验映射后的路径和可得大小。核验仅使用目录请求。无需 compute 即可导入和使用资料。默认共享 v4 使用稳定对象、系列、字符串修订和二进制原始附件，兼容 v2/v3，保护本机订正。正式附件存于 `WEBDAV_METADATA_PATH`，衍生文件独立重试，分享不再等待衍生文件。接口与完整流程见[媒体库管理](media-library.md#媒体入库资料合并与分享2026-11-10)。
+媒体来源新增持久化入库启动请求与资料包后台工作流：上传完成后解析、路径映射预览、确认后按字段合并并持久保存。WebDAV 资料包先离线保存，随后自动按父目录列举文件，核验映射后的路径和可得大小。核验仅使用目录请求。无需 compute 即可导入和使用资料。默认共享 v5 将稳定对象、系列、字符串修订和二进制原始附件写入一个 ZIP，导入支持 v2 至 v5 并保护本机订正。正式附件存于 `WEBDAV_METADATA_PATH`，衍生文件独立重试，分享不再等待衍生文件。接口与完整流程见[媒体库管理](media-library.md#媒体入库资料合并与分享2026-11-10)。
 
 
 ## 正式元数据标准 1.0
