@@ -50,7 +50,7 @@ func visitShareArchive(index map[string]any, indexFile *zip.File, z *zip.Reader,
 	}
 	base := map[string]any{
 		"version": shareArchiveVersion, "collectionId": index["collectionId"], "collectionRevision": index["collectionRevision"],
-		"setId": index["id"], "baseId": index["baseId"], "completeSnapshot": true, "contentDigest": index["contentDigest"],
+		"setId": index["id"], "baseId": index["baseId"], "completeSnapshot": true, "contentDigest": index["contentDigest"], "deletionHints": int64(0),
 	}
 	if _, _, e := sharedIdentity(base); e != nil {
 		return e
@@ -65,12 +65,8 @@ func visitShareArchive(index map[string]any, indexFile *zip.File, z *zip.Reader,
 	if e != nil {
 		return e
 	}
-	deletions, e := shareArchivePages(index, "deletions")
-	if e != nil {
-		return e
-	}
-	if text(index["baseId"]) == "" && len(deletions) != 0 {
-		return bad("完整资料包不能包含删除提示")
+	if deletions, ok := index["deletions"].([]any); !ok || len(deletions) != 0 {
+		return bad("全量资料包的删除提示清单必须为空")
 	}
 
 	declared, ok := index["files"].(map[string]any)
@@ -79,9 +75,6 @@ func visitShareArchive(index map[string]any, indexFile *zip.File, z *zip.Reader,
 	}
 	pages := map[string]bool{}
 	for _, name := range records {
-		pages[name] = true
-	}
-	for _, name := range deletions {
 		pages[name] = true
 	}
 	files := make(map[string]shareArchiveEntry, len(declared))
@@ -133,23 +126,6 @@ func visitShareArchive(index map[string]any, indexFile *zip.File, z *zip.Reader,
 			return bad("资料包缺少清单中的文件")
 		}
 	}
-
-	deletionCount := int64(0)
-	for _, name := range deletions {
-		data, e := files[name].read()
-		if e != nil {
-			return e
-		}
-		count, e := countShareDeletionHints(data)
-		if e != nil {
-			return e
-		}
-		deletionCount += count
-		if deletionCount > shareArchiveRecords {
-			return bad("删除提示过多")
-		}
-	}
-	base["deletionHints"] = deletionCount
 
 	for _, name := range assetNames {
 		entry := files[name]

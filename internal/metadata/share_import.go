@@ -28,11 +28,14 @@ func shareSize(v any) (*int64, error) {
 }
 func mediaPath(v string) bool { return library.SupportsMedia(v) }
 
-// ImportPart commits bounded chunks with a durable receipt, so retries preserve prior work.
+// ImportPart accepts a complete standalone manifest archive. Use ImportStream for a multipart ZIP.
 func (s *Service) ImportPart(ctx context.Context, sourceID string, data []byte) (map[string]int64, error) {
 	document, e := readManifest(data)
 	if e != nil {
 		return nil, e
+	}
+	if document["part"] != nil {
+		return nil, bad(fullShareImportMessage)
 	}
 	return s.importDocument(ctx, sourceID, document)
 }

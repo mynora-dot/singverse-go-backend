@@ -4,8 +4,7 @@
   "title": "SingVerse share container v5",
   "oneOf": [
     { "$ref": "#/$defs/index" },
-    { "$ref": "#/$defs/records" },
-    { "$ref": "#/$defs/deletionHints" }
+    { "$ref": "#/$defs/records" }
   ],
   "$defs": {
     "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$" },
@@ -20,7 +19,7 @@
         "id": { "$ref": "#/$defs/uuid" },
         "collectionId": { "$ref": "#/$defs/uuid" },
         "collectionRevision": { "type": "string", "pattern": "^[1-9][0-9]{0,18}$" },
-        "baseId": { "anyOf": [{ "$ref": "#/$defs/uuid" }, { "const": "" }] },
+        "baseId": { "const": "" },
         "total": { "type": "integer", "minimum": 0, "maximum": 100000 },
         "records": {
           "type": "array",
@@ -28,16 +27,11 @@
           "maxItems": 30000,
           "uniqueItems": true
         },
-        "deletions": {
-          "type": "array",
-          "items": { "type": "string", "pattern": "^deletions/[0-9]{6}\\.json$" },
-          "maxItems": 30000,
-          "uniqueItems": true
-        },
+        "deletions": { "const": [] },
         "files": {
           "type": "object",
           "maxProperties": 30000,
-          "propertyNames": { "pattern": "^(?:(?:records|deletions)/[0-9]{6}\\.json|assets/[0-9a-f]{64}\\.(?:jpg|png|webp|json|txt|srt|vtt))$" },
+          "propertyNames": { "pattern": "^(?:records/[0-9]{6}\\.json|assets/[0-9a-f]{64}\\.(?:jpg|png|webp|json|txt|srt|vtt))$" },
           "additionalProperties": {
             "type": "object",
             "properties": {
@@ -74,14 +68,6 @@
         "required": ["rootId", "path", "mediaId", "documents"],
         "additionalProperties": false
       }
-    },
-    "deletionHints": {
-      "type": "object",
-      "properties": {
-        "advisoryOnly": { "const": true },
-        "paths": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/path" } }
-      },
-      "required": ["advisoryOnly", "paths"]
     }
   }
 }

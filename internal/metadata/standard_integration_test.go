@@ -303,7 +303,7 @@ func TestV4IntegrityRejectsModifiedPart(t *testing.T) {
 	}
 }
 
-func TestStandaloneV4ValidatorChecksOriginalTypesAndReferences(t *testing.T) {
+func TestV4ArchiveValidatorChecksOriginalTypesAndReferences(t *testing.T) {
 	original := tinyPNG(t)
 	assetID := metastandard.Digest(original)
 	for _, tc := range []struct {
@@ -330,13 +330,28 @@ func TestStandaloneV4ValidatorChecksOriginalTypesAndReferences(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			part := "part-000001.zip"
+			index := map[string]any{
+				"format": "singverse-share-set", "version": 4, "metadataSchema": "1.0", "id": doc["setId"], "collectionId": doc["collectionId"],
+				"collectionRevision": doc["collectionRevision"], "state": "SUCCEEDED", "baseId": "", "total": 1,
+				"parts": []string{part}, "deletions": []string{}, "files": map[string]any{part: map[string]any{"size": len(packed), "sha256": metastandard.Digest(packed)}},
+			}
+			digest, err := metastandard.DocumentDigest([]byte(encode(index)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			index["contentDigest"] = digest
+			archive := makeZip(t, []struct {
+				name string
+				data []byte
+			}{{"index.json", []byte(encode(index))}, {part, packed}})
 			filename := filepath.Join(t.TempDir(), "share.zip")
-			if err = os.WriteFile(filename, packed, 0600); err != nil {
+			if err = os.WriteFile(filename, archive, 0600); err != nil {
 				t.Fatal(err)
 			}
 			err = ValidateShareFile(filename)
 			if (err == nil) != tc.valid {
-				t.Fatal("standalone resource validation", err)
+				t.Fatal("archive resource validation", err)
 			}
 		})
 	}

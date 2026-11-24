@@ -164,9 +164,8 @@ func (s *Service) writeShareArchive(ctx context.Context, job map[string]any, z *
 	records := []string{}
 	cursor := ""
 	processed := int64(0)
-	baseID := text(job["base_id"])
 	for {
-		rows, e := s.rows(ctx, s.db, "share-page", map[string]any{"id": job["id"], "cursor": cursor, "baseId": nullable(baseID)})
+		rows, e := s.rows(ctx, s.db, "share-page", map[string]any{"id": job["id"], "cursor": cursor})
 		if e != nil {
 			return e
 		}
@@ -210,18 +209,10 @@ func (s *Service) writeShareArchive(ctx context.Context, job map[string]any, z *
 		}
 	}
 
-	deletions := []string{}
-	if e := s.visitShareDeletionPages(ctx, job, func(page int, paths []string) error {
-		name := sharePageName("deletions", page)
-		deletions = append(deletions, name)
-		return writeJSON(name, map[string]any{"advisoryOnly": true, "paths": paths})
-	}); e != nil {
-		return e
-	}
 	index := map[string]any{
 		"format": "singverse-share-set", "version": shareArchiveVersion, "metadataSchema": "1.0",
 		"id": job["id"], "collectionId": job["collection_id"], "collectionRevision": strconv.FormatInt(number(job["collection_revision"]), 10),
-		"baseId": baseID, "total": processed, "records": records, "deletions": deletions, "files": files,
+		"baseId": "", "total": processed, "records": records, "deletions": []string{}, "files": files,
 	}
 	digest, e := metastandard.DocumentDigest([]byte(encode(index)))
 	if e != nil {

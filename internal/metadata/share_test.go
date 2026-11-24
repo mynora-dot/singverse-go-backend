@@ -12,7 +12,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,10 +67,10 @@ func exportJob(t *testing.T, f *fixture, source string, base any) map[string]any
 	return job
 }
 
-func TestShareRoundTripDurableFilesDeltaAndPrivacy(t *testing.T) {
+func TestShareRoundTripFullPackageAndPrivacy(t *testing.T) {
 	exerciseShareRoundTrip(t, setup(t))
 }
-func TestMySQLShareRoundTripDurableFilesDeltaAndPrivacy(t *testing.T) {
+func TestMySQLShareRoundTripFullPackageAndPrivacy(t *testing.T) {
 	db, cfg := testutil.MySQLDatabase(t)
 	exerciseShareRoundTrip(t, setupWithDatabase(t, db, "mysql", cfg))
 }
@@ -136,15 +135,16 @@ func exerciseShareRoundTrip(t *testing.T, f *fixture) {
 	if a == nil || a.Origins["artists"].Kind != "SHARED" {
 		t.Fatalf("shared projection %#v", a)
 	}
-	// A metadata edit is exported in the delta; removal is advisory only.
+	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs", map[string]any{"baseId": jobID}, 400)
+	// A later full archive includes both songs; only the edited song is updated.
 	review := request(t, f.router, "GET", "/api/v1/metadata/songs/"+ids[0]+"/review", nil, 200)
 	request(t, f.router, "POST", "/api/v1/metadata/songs/"+ids[0]+"/review/apply", ReviewApply{RequestID: uuid(), Fingerprint: text(review["fingerprint"]), Version: text(review["version"]), Fields: []string{"title"}, Edits: map[string]any{"title": "Confirmed Updated"}}, 200)
-	if _, e = f.db.Exec("DELETE FROM media_song WHERE id=?", ids[1]); e != nil {
-		t.Fatal(e)
+	full := exportJob(t, f, source, nil)
+	if number(full["processed_count"]) != 2 || text(full["base_id"]) != "" {
+		t.Fatal(full)
 	}
-	delta := exportJob(t, f, source, map[string]any{"baseId": jobID})
 	w := httptest.NewRecorder()
-	f.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+text(delta["id"])+"/download", nil))
+	f.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/media-sources/"+source+"/embedded-metadata/share-jobs/"+text(full["id"])+"/download", nil))
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -153,22 +153,17 @@ func exerciseShareRoundTrip(t *testing.T, f *fixture) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	advisory, e := z.Open("deletions/000001.json")
-	if e != nil {
-		t.Fatal(e)
-	}
-	deleted, e := io.ReadAll(advisory)
-	advisory.Close()
-	if e != nil || !bytes.Contains(deleted, []byte(`"advisoryOnly":true`)) {
-		t.Fatalf("%s %v", deleted, e)
-	}
-	result, e := f.s.ImportStream(ctx, target, bytes.NewReader(outer))
-	if e != nil || result["imported"] != 1 {
-		t.Fatalf("set import %v %v", result, e)
+	result := applyWorkflow(t, f, target, outer, "SUCCEEDED")
+	if number(result["processedCount"]) != 2 || number(result["updatedCount"]) != 1 || number(result["unchangedCount"]) != 1 {
+		t.Fatal(result)
 	}
 	songs = request(t, f.router, "GET", "/api/v1/media-sources/"+target+"/songs", nil, 200)
-	if number(songs["totalElements"]) != 2 {
-		t.Fatal("advisory removed existing song", songs)
+	updated := false
+	for _, item := range array(songs["items"]) {
+		updated = updated || text(current(item.(map[string]any))["title"]) == "Confirmed Updated"
+	}
+	if number(songs["totalElements"]) != 2 || !updated {
+		t.Fatal(songs)
 	}
 	var changed bytes.Buffer
 	writer := zip.NewWriter(&changed)

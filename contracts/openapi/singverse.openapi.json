@@ -15519,13 +15519,13 @@
             }
           },
           "400": {
-            "description": "Invalid package"
+            "description": "Invalid package, delta package, or standalone part. Upload a full ZIP."
           },
           "413": {
             "description": "ZIP upload or v5 expanded content exceeds 8 GiB, or an individual file exceeds its format limit."
           }
         },
-        "description": "v2 through v5 ZIPs are supported. Durable receipts retain completed work if interrupted. Prefer import-jobs for background processing and verification. Complete share sets advance the shared baseline after the entire archive succeeds. Deletions are advisory."
+        "description": "Accepts full v2 through v5 ZIPs. Durable receipts retain completed work if interrupted. Prefer import-jobs for background processing and verification. Changed data is merged and the shared baseline advances after the entire archive succeeds."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/share-jobs": {
@@ -15543,31 +15543,16 @@
         ],
         "responses": {
           "202": {
-            "description": "Durable export job, bounded package, or deletion advisory (never applied automatically)."
+            "description": "Durable full ZIP export job."
+          },
+          "400": {
+            "description": "Invalid request or legacy delta export requested."
           },
           "409": {
-            "description": "Another export is active or the selected baseline is not compatible."
+            "description": "Another full export is active."
           }
         },
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "baseId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        },
-        "description": "Local/WebDAV durable export. v5 uses one ZIP containing an index, record pages and deduplicated original attachments. The archive is limited to 8 GiB and 100000 media entries. Optional baseId creates a delta. The package stores relative media paths and portable metadata."
+        "description": "Local/WebDAV durable export. v5 uses one full ZIP containing an index, record pages and deduplicated original attachments. The archive is limited to 8 GiB and 100000 media entries. The package stores relative media paths and portable metadata."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/share-jobs/latest": {
@@ -15585,7 +15570,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Durable export job, bounded package, or deletion advisory (never applied automatically)."
+            "description": "Latest full export job or an empty object."
           }
         }
       }
@@ -15641,7 +15626,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Durable export job, bounded package, or deletion advisory (never applied automatically)."
+            "description": "Full export job resumed."
+          },
+          "409": {
+            "description": "Legacy delta export. Create a new full export job."
           }
         }
       }
@@ -22174,7 +22162,7 @@
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs": {
       "post": {
         "operationId": "uploadMediaImport",
-        "summary": "Upload a metadata ZIP for automatic import or manual preview.",
+        "summary": "Upload a full metadata ZIP for automatic import or manual preview.",
         "parameters": [
           {
             "in": "path",
@@ -22232,7 +22220,7 @@
             "description": "ZIP upload exceeds 8 GiB"
           }
         },
-        "description": "After HTTP 202 the durable job runs independently of the browser. Accepts v2 through v5 packages, one active import per source, up to 100000 songs. After offline validation, auto mode queues the job. Preview mode waits for apply. Both modes save metadata offline and verify WebDAV paths and known sizes through directory listings. Parsing and application checkpoints survive restart."
+        "description": "After HTTP 202 the durable job runs independently of the browser. Accepts full v2 through v5 ZIPs, one active import per source, up to 100000 songs. Delta packages and standalone parts fail validation before applying data. After offline validation, auto mode queues the job. Preview mode waits for apply. Both modes merge new and changed metadata offline, preserve local edits and verify WebDAV paths and known sizes through directory listings. Parsing and application checkpoints survive restart."
       }
     },
     "/api/v1/media-sources/{id}/embedded-metadata/import-jobs/latest": {

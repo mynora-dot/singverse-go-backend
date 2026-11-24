@@ -11,7 +11,7 @@ part-000002.zip
 ...
 ```
 
-实际分片文件名以 index 清单为准。每个内部 ZIP 含 `manifest.json` 和可选 `chunks/<sha256>.bin`。index 的 `format=singverse-share-set`、`version=4`、`metadataSchema=1.0`；内部清单 `format=singverse-media-index`。均含 collectionId、字符串 collectionRevision 和 baseId；index 的 id 对应内部清单 setId。无 baseId 是完整包；增量的 baseId 必须与接收方已完成的基线对应。
+实际分片文件名以 index 清单为准。每个内部 ZIP 含 `manifest.json` 和可选 `chunks/<sha256>.bin`。index 的 `format=singverse-share-set`、`version=4`、`metadataSchema=1.0`；内部清单 `format=singverse-media-index`。均含 collectionId、字符串 collectionRevision 和 baseId；index 的 id 对应内部清单 setId。当前导入要求 `baseId` 和 `deletions` 为空，并上传包含全部分片的完整 ZIP。
 
 index 列出 parts、deletions 及 files（每个文件的 sha256 与 size）。`contentDigest` 等于移除该字段后的整个 index 进行 JCS 规范化再 SHA-256。各分片原始字节摘要必须匹配；记录文档按 Schema 校验。相同 collectionId+collectionRevision 不得出现不同 contentDigest。完整包不依赖发送方其他任务文件或数据库。
 
@@ -19,7 +19,7 @@ index 列出 parts、deletions 及 files（每个文件的 sha256 与 size）。
 
 resources 数组描述 `id,mime,size,chunks:[{id,size}]`。id 是原始完整附件摘要；chunk id 是块字节摘要。资源去重，块不超过 16 MiB；附件不超过 32 MiB，块按数组顺序拼接必须恢复相同原始字节。附件块可以先于记录放在前面的分片；记录出现时所有引用附件必须完整可用。单片压缩及展开总量均不超过 32 MiB，JSON 清单不超过 16 MiB；完整上传沿用 8 GiB 和既有条目／展开保护。校验器逐片读取，不把完整包解压到媒体目录。
 
-删除清单仅提示共享方移除的路径；不删除接收方资料或本地屏蔽决定。资料包不包含账号和系统密钥，因此不能替代完整系统备份。
+资料包不包含账号和系统密钥，因此不能替代完整系统备份。
 
 ## 地址绑定与更新
 

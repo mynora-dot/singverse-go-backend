@@ -54,12 +54,12 @@ func (s *Service) exportShare(ctx context.Context, job map[string]any) (err erro
 		if text(job["collection_id"]) != "" {
 			version = 3
 		}
-		manifest := map[string]any{"format": "singverse-media-index", "version": version, "collectionId": job["collection_id"], "collectionRevision": job["collection_revision"], "setId": id, "part": parts + 1, "baseId": text(job["base_id"])}
+		manifest := map[string]any{"format": "singverse-media-index", "version": version, "collectionId": job["collection_id"], "collectionRevision": job["collection_revision"], "setId": id, "part": parts + 1, "baseId": ""}
 		entries := []any{}
 		assets := map[string]any{}
 		estimated := 0
 		for len(entries) < 5000 {
-			rows, e := s.rows(ctx, s.db, "share-page", map[string]any{"id": id, "cursor": cursor, "baseId": nullable(text(job["base_id"]))})
+			rows, e := s.rows(ctx, s.db, "share-page", map[string]any{"id": id, "cursor": cursor})
 			if e != nil {
 				return e
 			}
@@ -155,11 +155,6 @@ func (s *Service) exportShare(ctx context.Context, job map[string]any) (err erro
 			}
 			parts++
 		}
-		if done {
-			if e = s.writeDeletions(ctx, job, folder); e != nil {
-				return e
-			}
-		}
 		e = s.transaction(ctx, func(tx store.DBTX) error {
 			for key := range assets {
 				if _, e := s.exec(ctx, tx, "share-assetInsert", map[string]any{"id": id, "hash": key}); e != nil {
@@ -173,43 +168,6 @@ func (s *Service) exportShare(ctx context.Context, job map[string]any) (err erro
 			return s.shareProgress(ctx, tx, job, state, cursor, processed, parts, nil)
 		})
 		if e != nil {
-			return e
-		}
-	}
-	return nil
-}
-func (s *Service) writeDeletions(ctx context.Context, job map[string]any, folder string) error {
-	return s.visitShareDeletionPages(ctx, job, func(part int, paths []string) error {
-		return atomicWrite(filepath.Join(folder, fmt.Sprintf("deletions-%06d.json", part)), []byte(encode(map[string]any{"advisoryOnly": true, "paths": paths})))
-	})
-}
-
-func (s *Service) visitShareDeletionPages(ctx context.Context, job map[string]any, visit func(int, []string) error) error {
-	base := text(job["base_id"])
-	if base == "" {
-		return nil
-	}
-	cursor := ""
-	part := 0
-	for {
-		rows, e := s.rows(ctx, s.db, "share-deleted", map[string]any{"id": job["id"], "baseId": base, "cursor": cursor})
-		if e != nil {
-			return e
-		}
-		if len(rows) == 0 {
-			break
-		}
-		paths := []string{}
-		for _, row := range rows {
-			relative := text(row["relative_path"])
-			if !validPortablePath(relative) {
-				return bad("删除建议路径无效")
-			}
-			paths = append(paths, relative)
-			cursor = text(row["song_id"])
-		}
-		part++
-		if e = visit(part, paths); e != nil {
 			return e
 		}
 	}

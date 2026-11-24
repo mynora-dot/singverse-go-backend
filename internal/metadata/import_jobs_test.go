@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mynora-dot/singverse-go-backend/internal/metastandard"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/testutil"
 )
@@ -369,26 +370,21 @@ func exerciseWorkflowBinding(t *testing.T, f *fixture) {
 	}
 }
 
-func TestWorkflowRejectsMissingDeltaBaselineAndResumesChunks(t *testing.T) {
+func TestWorkflowResumesFullPackageChunks(t *testing.T) {
 	f := setup(t)
 	source := newDAV(t, f, "checkpoints")
 	collection := uuid()
 	ctx := context.Background()
-	delta, err := packManifest(map[string]any{"format": "singverse-media-index", "version": 3, "collectionId": collection, "collectionRevision": 2, "setId": uuid(), "baseId": uuid(), "entries": []any{entry("a.mkv", nil)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	job := uploadWorkflow(t, f, source, delta)
-	importStep(t, f, source, text(job["id"]), "FAILED")
 	entries := []any{}
 	for i := 0; i < 201; i++ {
 		entries = append(entries, entry(fmt.Sprintf("a-%03d.mkv", i), nil))
 	}
-	job = uploadWorkflow(t, f, source, workflowPackage(t, collection, 3, entries...))
+	job := uploadWorkflow(t, f, source, workflowPackage(t, collection, 3, entries...))
 	id := text(job["id"])
 	importStep(t, f, source, id, "PREVIEW")
 	// Fail the second chunk: first 100 outcomes and songs must survive atomically.
-	if _, err = f.db.Exec("CREATE TRIGGER fail_import BEFORE INSERT ON media_shared_song WHEN (SELECT COUNT(*) FROM media_shared_song)>=100 BEGIN SELECT RAISE(ABORT,'forced failure'); END"); err != nil {
+	_, err := f.db.Exec("CREATE TRIGGER fail_import BEFORE INSERT ON media_shared_song WHEN (SELECT COUNT(*) FROM media_shared_song)>=100 BEGIN SELECT RAISE(ABORT,'forced failure'); END")
+	if err != nil {
 		t.Fatal(err)
 	}
 	request(t, f.router, "POST", "/api/v1/media-sources/"+source+"/embedded-metadata/import-jobs/"+id+"/apply", nil, 200)
@@ -431,27 +427,45 @@ func TestWorkflowRejectsMissingDeltaBaselineAndResumesChunks(t *testing.T) {
 	}
 }
 
-func TestWorkflowIndividualPartDoesNotEstablishDeltaBaseline(t *testing.T) {
+func TestShareImportsRequireFullPackages(t *testing.T) {
 	f := setup(t)
 	source := newDAV(t, f, "partial")
-	collection, snapshot := uuid(), uuid()
-	part, err := packManifest(map[string]any{"format": "singverse-media-index", "version": 3, "collectionId": collection, "collectionRevision": 1, "setId": snapshot, "part": 1, "entries": []any{entry("a.mkv", nil)}})
+	collection := uuid()
+	baseline := applyWorkflow(t, f, source, workflowPackage(t, collection, 1, entry("a.mkv", nil)), "SUCCEEDED")
+	part, err := packManifest(map[string]any{"format": "singverse-media-index", "version": 3, "collectionId": collection, "collectionRevision": 2, "setId": uuid(), "part": 1, "entries": []any{entry("b.mkv", nil)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	job := applyWorkflow(t, f, source, part, "SUCCEEDED")
-	var baselines int
-	if err = f.db.Get(&baselines, "SELECT COUNT(*) FROM media_shared_baseline WHERE source_id=?", source); err != nil || baselines != 0 {
-		t.Fatal("individual part established a complete baseline", baselines, err)
-	}
-	delta, err := packManifest(map[string]any{"format": "singverse-media-index", "version": 3, "collectionId": collection, "collectionRevision": 2, "setId": uuid(), "baseId": snapshot, "entries": []any{entry("b.mkv", nil)}})
+	legacyDelta, err := packManifest(map[string]any{"format": "singverse-media-index", "version": 3, "collectionId": collection, "collectionRevision": 2, "setId": uuid(), "baseId": baseline["snapshotId"], "entries": []any{entry("b.mkv", nil)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	job = uploadWorkflow(t, f, source, delta)
-	job = importStep(t, f, source, text(job["id"]), "FAILED")
-	if !strings.Contains(text(job["error"]), "基线") {
-		t.Fatal(job)
+	index := map[string]any{
+		"format": "singverse-share-set", "version": 5, "metadataSchema": "1.0", "id": uuid(), "collectionId": collection,
+		"collectionRevision": "2", "baseId": baseline["snapshotId"], "total": 0, "records": []string{}, "deletions": []string{}, "files": map[string]any{},
+	}
+	digest, err := metastandard.DocumentDigest([]byte(encode(index)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	index["contentDigest"] = digest
+	delta := makeZip(t, []struct {
+		name string
+		data []byte
+	}{{"index.json", []byte(encode(index))}})
+	for _, data := range [][]byte{part, legacyDelta, delta} {
+		job := uploadWorkflow(t, f, source, data)
+		job = importStep(t, f, source, text(job["id"]), "FAILED")
+		if job["error"] != fullShareImportMessage || number(job["processedCount"]) != 0 {
+			t.Fatal(job)
+		}
+		if _, err = f.s.ImportStream(t.Context(), source, bytes.NewReader(data)); code(err) != 400 {
+			t.Fatal("synchronous import accepted an incomplete package", err)
+		}
+	}
+	var revision int
+	if err = f.db.Get(&revision, "SELECT revision FROM media_shared_baseline WHERE source_id=? AND collection_id=?", source, collection); err != nil || revision != 1 {
+		t.Fatal("rejected package changed the shared baseline", revision, err)
 	}
 }
 

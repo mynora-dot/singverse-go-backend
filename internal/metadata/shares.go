@@ -72,6 +72,10 @@ func (s *Service) createShare(c *gin.Context) {
 	if c.Request.ContentLength != 0 && !s.decode(c, &input) {
 		return
 	}
+	if input.BaseID != nil && strings.TrimSpace(*input.BaseID) != "" {
+		s.fail(c, bad("仅支持导出全量资料包"))
+		return
+	}
 	ctx := c.Request.Context()
 	sourceID := c.Param("id")
 	id := uuid()
@@ -82,17 +86,6 @@ func (s *Service) createShare(c *gin.Context) {
 		source, e := s.row(ctx, tx, "source", map[string]any{"id": sourceID})
 		if e != nil {
 			return absent(e, "媒体来源不存在")
-		}
-		base := nullable("")
-		if input.BaseID != nil && strings.TrimSpace(*input.BaseID) != "" {
-			job, e := s.shareJob(ctx, tx, sourceID, *input.BaseID)
-			if e != nil {
-				return e
-			}
-			if text(job["collection_id"]) == "" || text(job["binding"]) != hash(text(source["location"])) || text(job["state"]) != "SUCCEEDED" {
-				return conflict("基准快照与当前媒体来源不兼容")
-			}
-			base = *input.BaseID
 		}
 		active, e := s.rows(ctx, tx, "share-active", map[string]any{"sourceId": sourceID})
 		if e != nil {
@@ -108,7 +101,7 @@ func (s *Service) createShare(c *gin.Context) {
 		if len(active) >= 8 {
 			return conflict("分享导出队列已满")
 		}
-		a := map[string]any{"id": id, "sourceId": sourceID, "binding": hash(text(source["location"])), "baseId": base, "version": shareArchiveVersion, "now": now()}
+		a := map[string]any{"id": id, "sourceId": sourceID, "binding": hash(text(source["location"])), "version": shareArchiveVersion, "now": now()}
 		if _, e = s.exec(ctx, tx, "share-insert", a); e != nil {
 			return e
 		}
@@ -182,6 +175,9 @@ func (s *Service) resumeShare(c *gin.Context) {
 		job, e := s.shareJob(ctx, tx, c.Param("id"), c.Param("jobId"))
 		if e != nil {
 			return e
+		}
+		if text(job["base_id"]) != "" {
+			return conflict("请新建全量资料包导出任务")
 		}
 		if text(job["state"]) == "SUCCEEDED" {
 			return nil
@@ -430,7 +426,15 @@ func (s *Service) ProcessShare(ctx context.Context) error {
 		return e
 	}
 	for _, job := range pending {
-
+		if text(job["base_id"]) != "" {
+			e = s.transaction(ctx, func(tx store.DBTX) error {
+				return s.shareProgress(ctx, tx, job, "FAILED", text(job["cursor_id"]), number(job["processed_count"]), number(job["part_count"]), "请新建全量资料包导出任务")
+			})
+			if e != nil {
+				return e
+			}
+			continue
+		}
 		if text(job["state"]) == "WAITING" {
 			e = s.transaction(ctx, func(tx store.DBTX) error {
 				source, e := s.row(ctx, tx, "source", map[string]any{"id": job["source_id"]})

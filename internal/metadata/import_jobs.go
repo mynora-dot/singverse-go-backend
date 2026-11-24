@@ -360,6 +360,9 @@ func (s *Service) importAction(c *gin.Context) {
 					return e
 				}
 			} else if phase == "APPLYING" {
+				if e = checkFullShareImport(jobManifest(job)); e != nil {
+					return e
+				}
 				state = "QUEUED"
 			} else {
 				state = "PARSING"
@@ -385,7 +388,11 @@ func jobManifest(job map[string]any) map[string]any {
 	if version >= 4 {
 		rev = strconv.FormatInt(number(job["collection_revision"]), 10)
 	}
-	return map[string]any{"version": version, "collectionId": job["collection_id"], "collectionRevision": rev, "setId": job["snapshot_id"], "baseId": job["base_id"], "contentDigest": job["content_digest"]}
+	return map[string]any{
+		"version": version, "collectionId": job["collection_id"], "collectionRevision": rev,
+		"setId": job["snapshot_id"], "baseId": job["base_id"], "contentDigest": job["content_digest"],
+		"completeSnapshot": number(job["complete_snapshot"]) != 0,
+	}
 }
 func (s *Service) validateImportBinding(ctx context.Context, tx store.DBTX, job map[string]any) error {
 	source, e := s.row(ctx, tx, "source", map[string]any{"id": job["source_id"]})
@@ -556,14 +563,10 @@ func (s *Service) prepareImport(ctx context.Context, job map[string]any) error {
 		if e != nil {
 			return e
 		}
-		complete := 0
-		if manifest["completeSnapshot"] == true {
-			complete = 1
-		}
 		if _, err := s.exec(ctx, tx, "v4-workflow-version", map[string]any{"id": id, "version": number(manifest["version"]), "digest": text(manifest["contentDigest"])}); err != nil {
 			return err
 		}
-		if _, e = s.exec(ctx, tx, "workflow-manifest", map[string]any{"id": id, "collectionId": collection, "revision": revision, "snapshotId": text(manifest["setId"]), "baseId": text(manifest["baseId"]), "deletions": number(manifest["deletionHints"]), "complete": complete}); e != nil {
+		if _, e = s.exec(ctx, tx, "workflow-manifest", map[string]any{"id": id, "collectionId": collection, "revision": revision, "snapshotId": text(manifest["setId"])}); e != nil {
 			return e
 		}
 		if text(fresh["apply_mode"]) == "auto" {
@@ -588,7 +591,8 @@ func (s *Service) applyImport(ctx context.Context, job map[string]any) error {
 			if e = s.validateImportBinding(ctx, tx, current); e != nil {
 				return e
 			}
-			if e = s.checkSharedBaseline(ctx, tx, text(job["source_id"]), jobManifest(job)); e != nil {
+			manifest := jobManifest(current)
+			if e = s.checkSharedBaseline(ctx, tx, text(job["source_id"]), manifest); e != nil {
 				return e
 			}
 			entries, e := s.rows(ctx, tx, "workflow-unapplied", map[string]any{"id": id})
@@ -597,10 +601,8 @@ func (s *Service) applyImport(ctx context.Context, job map[string]any) error {
 			}
 			if len(entries) == 0 {
 				done = true
-				if number(current["complete_snapshot"]) != 0 {
-					if e = s.saveSharedBaseline(ctx, tx, text(job["source_id"]), jobManifest(job)); e != nil {
-						return e
-					}
+				if e = s.saveSharedBaseline(ctx, tx, text(job["source_id"]), manifest); e != nil {
+					return e
 				}
 				if e = s.setImportState(ctx, tx, id, "VERIFYING", "VERIFYING", nil); e != nil {
 					return e
@@ -910,7 +912,13 @@ func visitSharePackage(filename string, visit func(map[string]any) error, instal
 		if e != nil {
 			return e
 		}
-		doc["completeSnapshot"] = doc["part"] == nil
+		if doc["part"] != nil {
+			return bad(fullShareImportMessage)
+		}
+		if e = checkFullShareImport(doc); e != nil {
+			return e
+		}
+		doc["completeSnapshot"] = true
 		return visit(doc)
 	}
 	b, e := readZipFile(indexFile, metastandard.MaxJSON)
@@ -924,6 +932,9 @@ func visitSharePackage(filename string, visit func(map[string]any) error, instal
 	index, ok := rawIndex.(map[string]any)
 	if !ok || index["format"] != "singverse-share-set" {
 		return bad("分享清单无效")
+	}
+	if e = checkFullShareImport(index); e != nil {
+		return e
 	}
 	if number(index["version"]) == shareArchiveVersion {
 		return visitShareArchive(index, indexFile, z, visit, install)
@@ -941,7 +952,6 @@ func visitSharePackage(filename string, visit func(map[string]any) error, instal
 	}
 	expected := []string{}
 	known := map[string]bool{"index.json": true}
-	advisory := map[string]bool{}
 	for _, v := range array(index["parts"]) {
 		name, ok := v.(string)
 		if !ok || !partName.MatchString(name) || known[name] {
@@ -956,13 +966,8 @@ func visitSharePackage(filename string, visit func(map[string]any) error, instal
 	if len(expected) > 4096 || len(z.File) > 8193 {
 		return bad("分享分包清单无效")
 	}
-	for _, v := range array(index["deletions"]) {
-		name, ok := v.(string)
-		if !ok || !deletionName.MatchString(name) || known[name] {
-			return bad("删除提示无效")
-		}
-		known[name] = true
-		advisory[name] = true
+	if len(array(index["deletions"])) != 0 {
+		return bad("全量资料包的删除提示清单必须为空")
 	}
 	seen := map[string]bool{"index.json": true}
 	cursor := 0
@@ -972,12 +977,10 @@ func visitSharePackage(filename string, visit func(map[string]any) error, instal
 			return bad("分享包包含重复或未知文件")
 		}
 		seen[file.Name] = true
-		if !advisory[file.Name] {
-			if cursor >= len(expected) || expected[cursor] != file.Name {
-				return bad("分享分包顺序错误")
-			}
-			cursor++
+		if cursor >= len(expected) || expected[cursor] != file.Name {
+			return bad("分享分包顺序错误")
 		}
+		cursor++
 		if file.UncompressedSize64 > shareLimit || expanded+file.UncompressedSize64 > uint64(uploadLimit) {
 			return &problem{413, "分享包过大"}
 		}
@@ -986,33 +989,7 @@ func visitSharePackage(filename string, visit func(map[string]any) error, instal
 	if cursor != len(expected) || len(seen) != len(known) {
 		return bad("分享包不完整，请选择完整文件")
 	}
-	deletionCount := int64(0)
 	for _, file := range z.File[1:] {
-		if !advisory[file.Name] {
-			continue
-		}
-		raw, e := readZipFile(file, shareLimit)
-		if e != nil {
-			return e
-		}
-		if number(index["version"]) == 4 {
-			if e = checkV4Part(index, file.Name, raw); e != nil {
-				return e
-			}
-		}
-		count, e := countShareDeletionHints(raw)
-		if e != nil {
-			return e
-		}
-		deletionCount += count
-		if deletionCount > shareArchiveRecords {
-			return bad("删除提示过多")
-		}
-	}
-	for _, file := range z.File[1:] {
-		if advisory[file.Name] {
-			continue
-		}
 		b, e := readZipFile(file, shareLimit)
 		if e != nil {
 			return e
@@ -1035,38 +1012,19 @@ func visitSharePackage(filename string, visit func(map[string]any) error, instal
 		if number(index["version"]) == 4 {
 			doc["contentDigest"] = index["contentDigest"]
 		}
-		doc["deletionHints"] = deletionCount
-		doc["completeSnapshot"] = true
-		if text(index["baseId"]) != text(doc["baseId"]) {
-			return bad("资料分包基线不一致")
+		if e = checkFullShareImport(doc); e != nil {
+			return e
 		}
+		doc["deletionHints"] = int64(0)
+		doc["completeSnapshot"] = true
 		if e = visit(doc); e != nil {
 			return e
 		}
 	}
 	if len(expected) == 0 {
-		return visit(map[string]any{"format": "singverse-media-index", "version": index["version"], "collectionId": index["collectionId"], "collectionRevision": index["collectionRevision"], "setId": index["id"], "baseId": index["baseId"], "entries": []any{}, "deletionHints": deletionCount, "completeSnapshot": true, "metadataSchema": index["metadataSchema"], "contentDigest": index["contentDigest"]})
+		return visit(map[string]any{"format": "singverse-media-index", "version": index["version"], "collectionId": index["collectionId"], "collectionRevision": index["collectionRevision"], "setId": index["id"], "baseId": index["baseId"], "entries": []any{}, "deletionHints": int64(0), "completeSnapshot": true, "metadataSchema": index["metadataSchema"], "contentDigest": index["contentDigest"]})
 	}
 	return nil
-}
-
-func countShareDeletionHints(data []byte) (int64, error) {
-	raw, e := metastandard.Parse(data)
-	hint, ok := raw.(map[string]any)
-	if e != nil || !ok || hint["advisoryOnly"] != true {
-		return 0, bad("删除提示无效")
-	}
-	paths, ok := hint["paths"].([]any)
-	if !ok || len(paths) > shareArchiveRecords {
-		return 0, bad("删除提示无效")
-	}
-	for _, v := range paths {
-		relative, ok := v.(string)
-		if !ok || !validPortablePath(relative) {
-			return 0, bad("删除提示路径无效")
-		}
-	}
-	return int64(len(paths)), nil
 }
 
 func (s *Service) rebindSource(c *gin.Context) {

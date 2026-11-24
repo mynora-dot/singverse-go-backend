@@ -393,7 +393,19 @@ func sharedIdentity(doc map[string]any) (string, int64, error) {
 	return id, rev, nil
 }
 
+const fullShareImportMessage = "仅支持全量资料包，请重新导出全量 ZIP"
+
+func checkFullShareImport(doc map[string]any) error {
+	if text(doc["baseId"]) != "" || doc["completeSnapshot"] == false {
+		return bad(fullShareImportMessage)
+	}
+	return nil
+}
+
 func (s *Service) checkSharedBaseline(ctx context.Context, tx store.DBTX, source string, doc map[string]any) error {
+	if e := checkFullShareImport(doc); e != nil {
+		return e
+	}
 	if number(doc["version"]) >= 4 && text(doc["contentDigest"]) != "" {
 		if e := s.library.Formal().CheckPackage(ctx, tx, text(doc["collectionId"]), text(doc["collectionRevision"]), text(doc["contentDigest"])); e != nil {
 			return e
@@ -412,10 +424,6 @@ func (s *Service) checkSharedBaseline(ctx context.Context, tx store.DBTX, source
 	}
 	if len(rows) > 0 && number(rows[0]["revision"]) > rev {
 		return conflict("此资料包比已导入版本旧，请使用最新资料包")
-	}
-	base := text(doc["baseId"])
-	if base != "" && (len(rows) == 0 || (text(rows[0]["snapshot_id"]) != base && text(rows[0]["snapshot_id"]) != text(doc["setId"]))) {
-		return conflict("缺少此增量包对应的基线，请先导入完整资料包")
 	}
 	return nil
 }

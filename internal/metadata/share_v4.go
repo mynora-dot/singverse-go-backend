@@ -106,7 +106,7 @@ func portableTechnical(v any) any {
 	return v
 }
 func v4Header(job map[string]any) map[string]any {
-	return map[string]any{"format": "singverse-media-index", "version": 4, "metadataSchema": "1.0", "collectionId": job["collection_id"], "collectionRevision": strconv.FormatInt(number(job["collection_revision"]), 10), "setId": job["id"], "baseId": text(job["base_id"]), "entries": []any{}, "resources": []any{}}
+	return map[string]any{"format": "singverse-media-index", "version": 4, "metadataSchema": "1.0", "collectionId": job["collection_id"], "collectionRevision": strconv.FormatInt(number(job["collection_revision"]), 10), "setId": job["id"], "baseId": "", "entries": []any{}, "resources": []any{}}
 }
 func packV4(doc map[string]any, chunks map[string][]byte) ([]byte, error) {
 	raw, e := metastandard.Canonical([]byte(encode(doc)))
@@ -213,14 +213,11 @@ func (s *Service) exportV4(ctx context.Context, job map[string]any) error {
 		if e = ctx.Err(); e != nil {
 			return e
 		}
-		rows, e := s.rows(ctx, s.db, "share-page", map[string]any{"id": job["id"], "cursor": cursor, "baseId": nullable(text(job["base_id"]))})
+		rows, e := s.rows(ctx, s.db, "share-page", map[string]any{"id": job["id"], "cursor": cursor})
 		if e != nil {
 			return e
 		}
 		if len(rows) == 0 {
-			if e = s.writeDeletions(ctx, job, folder); e != nil {
-				return e
-			}
 			return s.transaction(ctx, func(tx store.DBTX) error {
 				return s.shareProgress(ctx, tx, job, "SUCCEEDED", cursor, number(job["total_count"]), parts, nil)
 			})
