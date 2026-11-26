@@ -245,18 +245,21 @@ func exerciseBusiness(t *testing.T, a *Application, db *sqlx.DB, cfg config.Conf
 		if actor == "" {
 			path = "/api/v1/metadata/songs/" + songID + "/cover"
 		}
-		req, _ := http.NewRequest("GET", c.origin+path, nil)
-		if actor != "" {
-			req.Header.Set("Authorization", "Bearer "+actor)
+		data, headers := readArtwork(t, c.client, c.origin+path, actor, "", 200)
+		if headers.Get("Content-Type") != "image/webp" || !bytes.Equal(data, cover) {
+			t.Fatalf("shared download cover %s: MIME %s: %s", path, headers.Get("Content-Type"), data)
 		}
-		response, err := c.client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		data, _ := io.ReadAll(response.Body)
-		response.Body.Close()
-		if response.StatusCode != 200 || response.Header.Get("Content-Type") != "image/webp" || !bytes.Equal(data, cover) {
-			t.Fatalf("shared download cover %s: HTTP %d MIME %s: %s", path, response.StatusCode, response.Header.Get("Content-Type"), data)
+		if actor == "" || actor == token {
+			original := headers.Get("ETag")
+			url := c.origin + path + "?variant=thumbnail"
+			thumbnail, headers := readArtwork(t, c.client, url, actor, original, 200)
+			etag := headers.Get("ETag")
+			if original == "" || etag == "" || etag == original || headers.Get("Content-Type") != "image/png" || len(thumbnail) == 0 {
+				t.Fatalf("original and thumbnail must have distinct validators: %s, %v", original, headers)
+			}
+			if unchanged, _ := readArtwork(t, c.client, url, actor, etag, 304); len(unchanged) != 0 {
+				t.Fatal("thumbnail revalidation returned a response body")
+			}
 		}
 	}
 	queueCommand := map[string]any{"requestId": "acceptance-add", "expectedRevision": 0, "action": "ADD", "songId": songID}

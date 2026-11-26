@@ -180,26 +180,6 @@ func (s *Service) inputHTTP(c *gin.Context) {
 	}
 }
 
-// SongCoverHandler is intended for an independently authenticated TV route.
-func (s *Service) SongCoverHandler(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
-		id = c.Param("songId")
-	}
-	cover, e := s.SongCover(c.Request.Context(), id)
-	if e != nil {
-		s.fail(c, e)
-		return
-	}
-	if c.Query("variant") == "thumbnail" {
-		cover, e = s.thumbnail(cover)
-		if e != nil {
-			s.fail(c, e)
-			return
-		}
-	}
-	imageResponse(c, cover)
-}
 func (s *Service) SetRemoteAvailability(status string, ready bool, message string) {
 	s.hookMu.Lock()
 	s.remoteState = map[string]any{"nodeStatus": status, "remoteReady": ready, "nodeMessage": message}
@@ -289,7 +269,7 @@ func (s *Service) Register(g *gin.RouterGroup) {
 	m.POST("/songs/:songId/covers/upload", s.upload)
 	m.GET("/cover-assets/:id", s.assetImage)
 	m.GET("/candidates/:id/cover", s.candidateCover)
-	m.GET("/songs/:songId/cover", s.songCover)
+	m.GET("/songs/:songId/cover", s.SongCoverHandler)
 	m.POST("/batches", s.startHTTP)
 	m.GET("/batches/latest", s.latestHTTP)
 	m.GET("/batches/:id", s.batchHTTP)

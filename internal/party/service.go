@@ -414,8 +414,7 @@ func (s *Service) snapshot(session, actor document) document {
 	v["host"] = host(actor)
 	now := s.now().UTC()
 	v["sampledAt"] = now.Format(time.RFC3339Nano)
-	seen, err := time.Parse(time.RFC3339Nano, str(session, "tvSeenAt"))
-	v["tvOnline"] = err == nil && now.Sub(seen) < 15*time.Second
+	v["tvOnline"] = tvOnlineAt(session, now)
 	delete(v, "reactionReceipts")
 	delete(v, "reactionRates")
 	delete(v, "currentRequestId")
@@ -562,6 +561,18 @@ func (s *Service) invite(ctx context.Context, tx store.DBTX, secret string) (doc
 	return v, nil
 }
 func (s *Service) join(ctx context.Context, tx store.DBTX, input document) (document, error) {
+	secret, err := text(input, "invitation", 200)
+	if err != nil {
+		return nil, err
+	}
+	invite, err := s.invite(ctx, tx, secret)
+	if err != nil {
+		return nil, err
+	}
+	return s.issueParticipant(ctx, tx, str(invite, "sessionId"), input)
+}
+
+func (s *Service) issueParticipant(ctx context.Context, tx store.DBTX, sid string, input document) (document, error) {
 	all, err := s.list(ctx, tx, "participant")
 	if err != nil {
 		return nil, err
@@ -576,14 +587,6 @@ func (s *Service) join(ctx context.Context, tx store.DBTX, input document) (docu
 			count++
 		}
 	}
-	secret, err := text(input, "invitation", 200)
-	if err != nil {
-		return nil, err
-	}
-	invite, err := s.invite(ctx, tx, secret)
-	if err != nil {
-		return nil, err
-	}
 	if count >= 1000 {
 		return nil, fail(429, "参与人数已达上限")
 	}
@@ -595,7 +598,7 @@ func (s *Service) join(ctx context.Context, tx store.DBTX, input document) (docu
 	if err != nil {
 		return nil, err
 	}
-	v := document{"sessionId": invite["sessionId"], "name": name, "host": false, "revoked": false, "expiresAt": s.now().Add(12 * time.Hour).UTC().Format(time.RFC3339Nano)}
+	v := document{"sessionId": sid, "name": name, "host": false, "revoked": false, "expiresAt": s.now().Add(12 * time.Hour).UTC().Format(time.RFC3339Nano)}
 	if err = s.insert(ctx, tx, id(), "participant", credential, v); err != nil {
 		return nil, err
 	}

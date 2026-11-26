@@ -93,9 +93,7 @@ func (s *Service) registerClassification(r *gin.Engine) {
 			s.report(c, e)
 			return
 		}
-		c.Header("Cache-Control", "no-store")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Data(200, "image/jpeg", v["image_bytes"].([]byte))
+		httpx.Artwork(c, "image/jpeg", v["image_bytes"].([]byte))
 	})
 	for _, remove := range []bool{false, true} {
 		handler := func(c *gin.Context) {

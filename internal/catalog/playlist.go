@@ -63,7 +63,10 @@ func playlistViewWith(r map[string]any, detail bool, byID map[string]map[string]
 	for _, song := range items {
 		if song["coverPath"] != nil {
 			out["coverPath"] = song["coverPath"]
-			out["coverVersion"] = song["revision"]
+			out["coverVersion"] = song["coverVersion"]
+			if out["coverVersion"] == nil {
+				out["coverVersion"] = song["revision"]
+			}
 			break
 		}
 	}

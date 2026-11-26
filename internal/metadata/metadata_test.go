@@ -321,11 +321,18 @@ func TestManagedCoverUploadAndBounds(t *testing.T) {
 	review := request(t, f.router, "GET", "/api/v1/metadata/songs/"+id+"/review", nil, 200)
 	asset := uploadRequest(t, f, id, text(review["fingerprint"]), "image/png", tinyPNG(t), 201)
 	assetID := text(asset["id"])
+	preview := httptest.NewRequest("GET", "/api/v1/metadata/cover-assets/"+assetID, nil)
+	preview.Header.Set("If-None-Match", "*")
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, preview)
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("ETag") != "" {
+		t.Fatalf("temporary cover must bypass the artwork cache: %d %v", w.Code, w.Header())
+	}
 	input := ReviewApply{RequestID: uuid(), Fingerprint: text(review["fingerprint"]), Version: text(review["version"]), Fields: []string{"cover"}, CoverAssetID: &assetID}
 	request(t, f.router, "POST", "/api/v1/metadata/songs/"+id+"/review/apply", input, 200)
-	w := httptest.NewRecorder()
+	w = httptest.NewRecorder()
 	f.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/metadata/songs/"+id+"/cover", nil))
-	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || w.Header().Get("Cache-Control") != "no-store" {
+	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || w.Header().Get("Cache-Control") != "private, max-age=300" {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	uploadRequest(t, f, id, text(review["fingerprint"]), "image/jpeg", tinyPNG(t), 400)

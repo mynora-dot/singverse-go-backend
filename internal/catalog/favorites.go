@@ -156,6 +156,7 @@ func (s *Service) listFavorites(ctx context.Context, q, availability, order stri
 			v["id"], v["addedAt"], v["available"] = id, row["added_at"], available
 			if !available {
 				delete(v, "coverPath")
+				delete(v, "coverVersion")
 			}
 			if tv && str(v["coverPath"]) != "" {
 				v["coverPath"] = "/api/v1/tv/library/songs/" + id + "/cover"

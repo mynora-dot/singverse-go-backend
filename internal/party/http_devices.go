@@ -9,6 +9,8 @@ func (s *Service) registerDeviceRoutes(r *gin.Engine) {
 	r.GET("/api/v1/server-info", s.serverInfoHTTP)
 	r.POST("/api/v1/auth/tv-session", s.loginDeviceHTTP)
 	r.DELETE("/api/v1/admin/tv-devices/:id", s.revokeDeviceHTTP)
+	r.GET("/api/v1/admin/party/televisions", s.onlineTelevisionsHTTP)
+	r.POST("/api/v1/admin/party/televisions/:id/join", s.joinTelevisionHTTP)
 }
 
 func (s *Service) serverInfoHTTP(c *gin.Context) {

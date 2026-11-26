@@ -24,15 +24,35 @@ func TestSongCoverImmediatelyReadsReplacement(t *testing.T) {
 	}
 	old := tinyPNG(t)
 	apply(old)
-	if _, err := f.s.PersistCover(context.Background(), id); err != nil {
-		t.Fatal(err)
+	coverPath := "/api/v1/metadata/songs/" + id + "/cover"
+	getCover := func(path, etag string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", path, nil)
+		if etag != "" {
+			req.Header.Set("If-None-Match", etag)
+		}
+		w := httptest.NewRecorder()
+		f.router.ServeHTTP(w, req)
+		return w
+	}
+	previous := getCover(coverPath, "")
+	previousTag := previous.Header().Get("ETag")
+	if previous.Code != 200 || previousTag != `"`+metastandard.Digest(old)+`"` || previous.Header().Get("Cache-Control") != "private, max-age=300" {
+		t.Fatalf("original cover cache headers: %d %v", previous.Code, previous.Header())
 	}
 	next := append(append([]byte{}, old...), 1)
 	apply(next)
-	w := httptest.NewRecorder()
-	f.router.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/metadata/songs/"+id+"/cover", nil))
+	w := getCover(coverPath, previousTag)
 	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), next) {
 		t.Fatalf("replacement was not visible immediately: status=%d old=%t", w.Code, bytes.Equal(w.Body.Bytes(), old))
+	}
+	nextTag := w.Header().Get("ETag")
+	w = getCover(coverPath, nextTag)
+	if w.Code != 304 || w.Body.Len() != 0 || w.Header().Get("ETag") != nextTag {
+		t.Fatalf("unchanged replacement was not matched: %d %v", w.Code, w.Header())
+	}
+	w = getCover(coverPath+"?variant=thumbnail", nextTag)
+	if thumbnailTag := w.Header().Get("ETag"); w.Code != 200 || thumbnailTag != `"`+metastandard.Digest(w.Body.Bytes())+`"` || thumbnailTag == nextTag {
+		t.Fatalf("thumbnail did not receive its own ETag: %d %v", w.Code, w.Header())
 	}
 	page := request(t, f.router, "GET", "/api/v1/media-songs", nil, 200)
 	if text(path(array(page["items"])[0].(map[string]any), "metadata", "track", "coverUrl")) == "" {
@@ -67,5 +87,13 @@ func TestSongCoverRetainsPriorArtworkWhenReplacementFails(t *testing.T) {
 	cover, err := f.s.SongCover(ctx, id)
 	if err != nil || !bytes.Equal(cover.Bytes, old) {
 		t.Fatalf("prior artwork lost while replacement is unavailable: %v", err)
+	}
+	req := httptest.NewRequest("GET", "/api/v1/metadata/songs/"+id+"/cover", nil)
+	tag := `"` + metastandard.Digest(old) + `"`
+	req.Header.Set("If-None-Match", tag)
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, req)
+	if w.Code != 304 || w.Header().Get("ETag") != tag || w.Body.Len() != 0 {
+		t.Fatalf("failed replacement changed the served representation: %d %v", w.Code, w.Header())
 	}
 }

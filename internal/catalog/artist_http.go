@@ -100,7 +100,9 @@ func (s *Service) registerArtists(r *gin.Engine) {
 			s.report(c, fail(502, "候选图片读取失败"))
 			return
 		}
-		imageReply(c, b)
+		c.Header("Cache-Control", "no-store")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Data(200, "image/jpeg", b)
 	})
 	r.GET(base+"/song-overrides/:songId", func(c *gin.Context) {
 		v, e := s.artistOverride(c.Request.Context(), c.Param("songId"), false, 0)
@@ -129,7 +131,7 @@ func (s *Service) registerArtists(r *gin.Engine) {
 			s.report(c, e)
 			return
 		}
-		imageReply(c, row["image_bytes"].([]byte))
+		httpx.Artwork(c, "image/jpeg", row["image_bytes"].([]byte))
 	})
 	for _, remove := range []bool{false, true} {
 		handler := func(c *gin.Context) {
@@ -155,9 +157,4 @@ func (s *Service) registerArtists(r *gin.Engine) {
 			r.PUT(base+"/:id/images/:kind", handler)
 		}
 	}
-}
-func imageReply(c *gin.Context, b []byte) {
-	c.Header("Cache-Control", "no-store")
-	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(200, "image/jpeg", b)
 }

@@ -13,6 +13,8 @@ import (
 	"unicode"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mynora-dot/singverse-go-backend/internal/metastandard"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/httpx"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"golang.org/x/text/unicode/norm"
@@ -61,8 +63,13 @@ func Projection(song map[string]any) map[string]any {
 				out[key] = track[key]
 			}
 		}
-		if fields["cover"] {
+		coverStatus := str(object(object(metadata, "fieldStates"), "cover"), "status")
+		if fields["cover"] && coverStatus != "CLEARED" && coverStatus != "NOT_APPLICABLE" {
 			out["coverPath"] = "/api/v1/tv/library/songs/" + str(song, "id") + "/cover"
+			asset, formal := strings.CutPrefix(str(track, "coverUrl"), "asset:")
+			if formal && coverStatus == "PRESENT" && metastandard.SHA256.MatchString(asset) {
+				out["coverVersion"] = asset
+			}
 		}
 	}
 	if actual, ok := metadata["media"].(map[string]any); ok {
@@ -447,8 +454,7 @@ func (s *Service) registerLibrary(r *gin.Engine) {
 			s.report(c, fail(404, "图片不存在或已停用"))
 			return
 		}
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Data(200, kind, data)
+		httpx.Artwork(c, kind, data)
 	})
 	for _, prefix := range []string{"tv", "party"} {
 		r.GET("/api/v1/"+prefix+"/library/artists", s.RequireActor(false), func(c *gin.Context) {
@@ -516,6 +522,10 @@ func (s *Service) registerLibrary(r *gin.Engine) {
 			}
 			if active != 1 {
 				s.report(c, fail(404, "图片不存在或已停用"))
+				return
+			}
+			if prefix == "tv" {
+				httpx.Artwork(c, "image/jpeg", data)
 				return
 			}
 			c.Header("X-Content-Type-Options", "nosniff")
@@ -593,7 +603,10 @@ func (s *Service) playlists(ctx context.Context, q string) ([]document, error) {
 				items = append(items, clone(entry.song))
 				if cover == "" {
 					cover = str(entry.song, "coverPath")
-					coverVersion = str(entry.song, "revision")
+					coverVersion = str(entry.song, "coverVersion")
+					if coverVersion == "" {
+						coverVersion = str(entry.song, "revision")
+					}
 				}
 			}
 		}

@@ -305,7 +305,27 @@ func TestProjectionMetadataPriorityAndNoPaths(t *testing.T) {
 	if strings.Contains(encode(v), "secret") {
 		t.Fatal("internal path leaked", v)
 	}
-	object(raw, "metadata")["stale"] = true
+	if str(v, "coverPath") == "" || str(v, "coverVersion") != "" {
+		t.Fatal("legacy artwork lost its path or got a formal version", v)
+	}
+	metadata := object(raw, "metadata")
+	asset := strings.Repeat("a", 64)
+	track := object(metadata, "track")
+	track["coverUrl"] = "asset:" + asset
+	state := document{"status": "PRESENT"}
+	metadata["fieldStates"] = document{"cover": state}
+	withArtwork := Projection(raw)
+	track["title"] = "已重命名"
+	updated := mobileProjection(raw)
+	if str(withArtwork, "coverVersion") != asset || str(updated, "coverVersion") != asset || str(updated, "revision") == str(withArtwork, "revision") {
+		t.Fatal("artwork version must follow the selected attachment independently of the song", updated)
+	}
+	state["status"] = "CLEARED"
+	cleared := Projection(raw)
+	if str(cleared, "coverPath") != "" || str(cleared, "coverVersion") != "" {
+		t.Fatal("cleared artwork still has a path or version", cleared)
+	}
+	metadata["stale"] = true
 	v = Projection(raw)
 	if str(v, "title") != "原始" || str(v, "coverPath") != "" {
 		t.Fatal(v)

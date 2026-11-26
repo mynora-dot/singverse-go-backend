@@ -6,20 +6,26 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
-func TestBrowserRolePlaybackKeepsAlternateAudioInOneHLSResource(t *testing.T) {
+func TestRolePlaybackKeepsAlternateAudioInOneResource(t *testing.T) {
 	media := map[string]any{"duration": 120.25, "streams": append([]any{
 		map[string]any{"id": "stream:0", "kind": "video", "codec": "h264"},
 	}, audioStreams(2)...)}
 	targets := make(chan map[string]any, 1)
 	var executions sync.Map
+	var audioConversion atomic.Bool
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/internal/v1/transcoding/")
 		switch path {
 		case "negotiate":
-			json.NewEncoder(w).Encode(map[string]any{"mode": "DIRECT", "media": media})
+			mode := "DIRECT"
+			if audioConversion.Load() {
+				mode = "AUDIO_TRANSCODE"
+			}
+			json.NewEncoder(w).Encode(map[string]any{"mode": mode, "media": media})
 		case "executions":
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -55,17 +61,21 @@ func TestBrowserRolePlaybackKeepsAlternateAudioInOneHLSResource(t *testing.T) {
 	}
 	for _, test := range []struct {
 		name, owner, family, role, explicitAudio, selected string
-		force, legacy                                      bool
+		force, legacy, direct, convertAudio                bool
 	}{
 		{name: "browser original", owner: "admin", family: "browser", role: "original"},
 		{name: "browser backing", owner: "admin", family: "browser", role: "backing"},
 		{name: "browser compatibility retry", owner: "admin", family: "browser", role: "backing", force: true},
 		{name: "older browser keeps selected stream", owner: "admin", family: "browser", role: "backing", legacy: true, selected: "stream:1"},
-		{name: "TV keeps existing role selection", owner: "tv:one", family: "browser", role: "backing", selected: "stream:1"},
+		{name: "TV direct play keeps both source tracks", owner: "tv:one", family: "android-tv", role: "backing", direct: true},
+		{name: "TV compatibility HLS keeps both roles", owner: "tv:one", family: "android-tv", role: "backing", convertAudio: true},
+		{name: "legacy TV compatibility HLS selects one role", owner: "tv:one", family: "android-tv", role: "original", legacy: true, convertAudio: true, selected: "stream:2"},
+		{name: "browser selection requires the administrator owner", owner: "tv:one", family: "browser", role: "backing", selected: "stream:1"},
 		{name: "other clients keep selected stream", owner: "admin", family: "android", role: "original", selected: "stream:2"},
 		{name: "explicit track preview stays single track", owner: "admin", family: "browser", explicitAudio: "stream:1", selected: "stream:1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			audioConversion.Store(test.convertAudio)
 			body := map[string]any{"client": map[string]any{"family": test.family, "hls": true}, "force": test.force, "switchableAudio": !test.legacy}
 			if test.role != "" {
 				body["audioRole"] = test.role
@@ -74,13 +84,24 @@ func TestBrowserRolePlaybackKeepsAlternateAudioInOneHLSResource(t *testing.T) {
 				body["audio_id"] = test.explicitAudio
 			}
 			value, err := f.s.Negotiate(t.Context(), f.song, test.owner, body, "/original", "/sessions")
-			if err != nil || str(value, "mode") != "HLS" || str(value, "status") != "READY" {
-				t.Fatal("switchable playback must not fall through to raw default audio", value, err)
+			if err != nil || str(value, "status") != "READY" || str(obj(value["audioRoles"]), "originalId") != "stream:2" {
+				t.Fatal("expected playable resource and role mapping", value, err)
+			}
+			if test.direct {
+				if str(value, "mode") != "DIRECT" || len(targets) != 0 || len(array(obj(value["media"])["streams"])) != 3 {
+					t.Fatal("compatible TV should get both tracks without starting a conversion", value)
+				}
+				return
+			}
+			if str(value, "mode") != "HLS" {
+				t.Fatal("expected HLS playback", value)
 			}
 			selected := <-targets
 			mode := "REMUX"
 			if test.force {
 				mode = "TRANSCODE"
+			} else if test.convertAudio {
+				mode = "AUDIO_TRANSCODE"
 			}
 			if str(selected, "audio_id") != test.selected || str(selected, "mode") != mode {
 				t.Fatal("unexpected compute target", selected)
@@ -90,8 +111,8 @@ func TestBrowserRolePlaybackKeepsAlternateAudioInOneHLSResource(t *testing.T) {
 			if test.selected != "" {
 				count = 2
 			}
-			if len(mapping) != count || str(obj(value["audioRoles"]), "originalId") != "stream:2" {
-				t.Fatal("role snapshot or alternate audio mapping lost", value)
+			if len(mapping) != count {
+				t.Fatal("alternate audio mapping lost", value)
 			}
 		})
 	}

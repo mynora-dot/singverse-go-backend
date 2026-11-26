@@ -1,6 +1,12 @@
 # 亲友点歌与 TV 遥控 v2
 
-Go 为曲库、家庭收藏、反馈、队列、播放推进和互动事件的唯一权威；Vue 与 TV 只消费同一快照。所有下列接口为 `/api/v1` 下 Bearer 身份，不接受管理员 Cookie。
+Go 为曲库、家庭收藏、反馈、队列、播放推进和互动事件的唯一权威，Vue 与 TV 消费同一快照。下文路径均以 `/api/v1` 为前缀。电视、点歌和遥控接口使用 Bearer 凭据，网页登录选电视时使用管理员会话。
+
+## 网页选择在线电视
+
+- `GET /admin/party/televisions` 使用管理员 Cookie，返回 `{items:[{deviceId,deviceName,sessionId,acceptingRequests}]}`。列表仅包含未解绑、正在开场且最近 15 秒内有心跳的电视。
+- `POST /admin/party/televisions/{id}/join` 使用管理员 Cookie、同源校验和 CSRF，提交 `{sessionId,name}`。服务端重新核对设备、场次与心跳，场次已更换、结束或电视离线时返回 409。
+- 加入成功返回普通参与者的 `id`、`sessionId`、`name`、`host`、`revoked`、`token`、`expiresAt` 和电视名称 `deviceName`。有效期为 12 小时，点歌与遥控继续使用该场次的 Bearer 凭据。电视上的二维码邀请独立有效。
 
 ## 能力、快照与兼容
 

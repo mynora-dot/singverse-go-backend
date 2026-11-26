@@ -6,8 +6,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -20,7 +18,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/mynora-dot/singverse-go-backend/internal/metastandard"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/httpx"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
 
 var coverHosts = map[string][]string{"NETEASE": {"music.126.net"}, "QQ": {"y.gtimg.cn"}, "KUGOU": {"kugou.com", "kugoucdn.com", "kgimg.com"}, "KUWO": {"img1.kuwo.cn", "img2.kuwo.cn", "img3.kuwo.cn", "img4.kuwo.cn"}, "QISHUI": {"p3-luna.douyinpic.com", "p6-luna.douyinpic.com"}, "MIGU": {"d.musicapp.migu.cn"}}
@@ -94,9 +95,12 @@ func (s *Service) asset(ctx context.Context, id string) (Cover, error) {
 func imageResponse(c *gin.Context, cover Cover) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Cache-Control", "no-store")
+	imageDimensions(c, cover)
+	c.Data(200, cover.MIME, cover.Bytes)
+}
+func imageDimensions(c *gin.Context, cover Cover) {
 	c.Header("X-SingVerse-Image-Width", fmt.Sprint(cover.Width))
 	c.Header("X-SingVerse-Image-Height", fmt.Sprint(cover.Height))
-	c.Data(200, cover.MIME, cover.Bytes)
 }
 func (s *Service) assetImage(c *gin.Context) {
 	cover, e := s.asset(c.Request.Context(), c.Param("id"))
@@ -392,8 +396,15 @@ func (s *Service) savedCover(ctx context.Context, tx store.DBTX, id, raw string)
 	}
 	return Cover{}, missing("没有已保存的封面")
 }
-func (s *Service) songCover(c *gin.Context) {
-	cover, e := s.SongCover(c.Request.Context(), c.Param("songId"))
+
+// SongCoverHandler serves the formal song display image under either the
+// administrator Cookie or TV Bearer authorization boundary.
+func (s *Service) SongCoverHandler(c *gin.Context) {
+	id := c.Param("songId")
+	if id == "" {
+		id = c.Param("id")
+	}
+	cover, e := s.SongCover(c.Request.Context(), id)
 	if e != nil {
 		s.fail(c, e)
 		return
@@ -405,7 +416,8 @@ func (s *Service) songCover(c *gin.Context) {
 			return
 		}
 	}
-	imageResponse(c, cover)
+	imageDimensions(c, cover)
+	httpx.Artwork(c, cover.MIME, cover.Bytes)
 }
 
 func (s *Service) uploadedCover(id string) (Cover, error) {

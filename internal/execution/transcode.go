@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -74,10 +75,12 @@ func (s *Service) Negotiate(ctx context.Context, songID, owner string, body map[
 	}
 	request := copyMap(body)
 	requested := str(body, "audioRole")
-	// Browser HLS can switch alternate audio without replacing the video. Keep
-	// both confirmed source tracks in one lease instead of remuxing each role.
+	// Opted-in players can select either confirmed source track in the same lease.
 	client := obj(body["client"])
-	switchableAudio := boolv(body["switchableAudio"]) && owner == "admin" && str(client, "family") == "browser" && boolv(client["hls"]) &&
+	family := str(client, "family")
+	browser := owner == "admin" && family == "browser"
+	television := strings.HasPrefix(owner, "tv:") && family == "android-tv"
+	switchableAudio := boolv(body["switchableAudio"]) && (browser || television) && boolv(client["hls"]) &&
 		body["audio_id"] == nil && oneOf(requested, "original", "backing") && str(audio, "state") == "CONFIRMED" &&
 		audioPattern.MatchString(str(audio, "originalId")) && audioPattern.MatchString(str(audio, "backingId")) &&
 		str(audio, "originalId") != str(audio, "backingId") && audio["backingResource"] == nil
@@ -120,6 +123,9 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 		return nil, err
 	}
 	client := obj(body["client"])
+	// The browser needs an HLS rendition selector. Media3 can also select
+	// the original file's tracks when the TV can play it directly.
+	requireHLS := switchableAudio && str(client, "family") == "browser"
 	fp := playbackFingerprint(song)
 	key := cacheKey(songID, fp, selected, client, boolv(body["force"]), body["codec"] != nil)
 	session := uuid()
@@ -179,7 +185,7 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 		if version != nil {
 			return version, nil
 		}
-		if boolv(body["force"]) || switchableAudio {
+		if boolv(body["force"]) || requireHLS {
 			return nil, err
 		}
 		return direct(directURL, "COMPUTE_UNAVAILABLE"), nil
@@ -188,13 +194,13 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 	if err = s.insertTranscode(ctx, id, songID, owner, "REALTIME", selected, c); err != nil {
 		return nil, err
 	}
-	v, err := s.startRealtime(ctx, id, songID, owner, fp, key, directURL, prefix, body, selected, client, c, version, switchableAudio)
+	v, err := s.startRealtime(ctx, id, songID, owner, fp, key, directURL, prefix, body, selected, client, c, version, requireHLS)
 	if err == nil {
 		return v, nil
 	}
 	_ = s.updateTranscode(ctx, id, "FAILED", map[string]any{}, safeFailure(err))
 	var f *failure
-	if errors.As(err, &f) && oneOfInt(f.status, 502, 503) && !switchableAudio && !boolv(body["force"]) && body["audio_id"] == nil && body["subtitle_id"] == nil {
+	if errors.As(err, &f) && oneOfInt(f.status, 502, 503) && !requireHLS && !boolv(body["force"]) && body["audio_id"] == nil && body["subtitle_id"] == nil {
 		if version != nil {
 			return version, nil
 		}
@@ -203,7 +209,7 @@ func (s *Service) negotiateMedia(ctx context.Context, songID, owner string, body
 	return nil, err
 }
 
-func (s *Service) startRealtime(ctx context.Context, id, songID, owner, fp, key, directURL, prefix string, body, selected, client map[string]any, c *compute.Connection, version map[string]any, switchableAudio bool) (map[string]any, error) {
+func (s *Service) startRealtime(ctx context.Context, id, songID, owner, fp, key, directURL, prefix string, body, selected, client map[string]any, c *compute.Connection, version map[string]any, requireHLS bool) (map[string]any, error) {
 	effective := copyMap(client)
 	effective["max_width"], effective["max_height"], effective["max_bitrate"], effective["max_fps"] = selected["width"], selected["height"], selected["bitrate"], selected["fps"]
 	plan, err := s.call(ctx, c, "/internal/v1/transcoding/negotiate", "POST", map[string]any{"reference": id, "client": effective, "fingerprint": fp, "burn_subtitle": boolv(body["burn_subtitle"])})
@@ -211,7 +217,7 @@ func (s *Service) startRealtime(ctx context.Context, id, songID, owner, fp, key,
 		return nil, err
 	}
 	_ = s.observeAudio(ctx, songID, obj(plan["media"]), fp)
-	if str(plan, "mode") == "DIRECT" && !switchableAudio && !boolv(body["force"]) && !boolv(body["burn_subtitle"]) && body["audio_id"] == nil && body["subtitle_id"] == nil && body["codec"] == nil {
+	if str(plan, "mode") == "DIRECT" && !requireHLS && !boolv(body["force"]) && !boolv(body["burn_subtitle"]) && body["audio_id"] == nil && body["subtitle_id"] == nil && body["codec"] == nil {
 		_ = s.updateTranscode(ctx, id, "DIRECT", plan, "")
 		v := direct(directURL, "")
 		v["media"] = plan["media"]
