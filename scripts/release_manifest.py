@@ -69,18 +69,3 @@ def manifest_packages(metadata, version, platform):
         check_apk_metadata(item, version, platform)
         packages.append((name, item))
     return sorted(packages)
-
-
-def release_index(manifests):
-    first = manifests[0]
-    index = {key: first[key] for key in COMMON_FIELDS}
-    index.update(schemaVersion=2, variants=[])
-    for item in sorted(manifests, key=lambda item: item["abis"]):
-        if any(item[key] != first[key] for key in COMMON_FIELDS):
-            raise ValueError("Per-ABI APKs must share version, package, SDK, notes and signing certificate")
-        if len(item["abis"]) != 1 or item["abis"][0] not in SUPPORTED_ABIS[first["platform"]]:
-            raise ValueError("Release APK must contain exactly one supported ABI")
-        abi = item["abis"][0]
-        index["variants"].append(dict(abi=abi, fileName=apk_name(first["platform"], abi), size=item["size"], sha256=item["sha256"]))
-    manifest_packages(index, first["versionName"], first["platform"])
-    return index

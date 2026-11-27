@@ -8,4 +8,4 @@
 
 完成一次导入后，上传替换、移除和重启仍按用户设置工作；图片版本为 JPEG 内容 SHA-256。资源变更不会覆盖已初始化的用户图片。默认词表的历史 SQL 初始化迁移保持原样，新的导入标记由 `202611150001_classification_cover_defaults.sql` 增量添加。
 
-验证入口：`internal/catalog/classification_defaults_test.go` 覆盖完整资源、默认词表匹配、首次启动、重复启动、升级保护、事务回滚与重试；`internal/app/classification_covers_test.go` 验证后台/电视读取同一图片和版本、身份边界、停用和删除行为。MySQL 用 `make go-mysql-check` 运行真实隔离库验证。
+旧版验收结果见[验证记录](../../../../docs/verification.md)。

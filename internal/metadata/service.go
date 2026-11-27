@@ -39,7 +39,6 @@ type Service struct {
 	hookMu          sync.RWMutex
 	projector       projectFunc
 	onChanged       func()
-	appliedHook     func(context.Context, store.DBTX, string) error
 	artistHook      func(context.Context, store.DBTX, string, string, []string) error
 	providers       map[string]Provider
 	guards          map[string]*providerGuard
@@ -133,11 +132,6 @@ func (s *Service) SetProjector(fn func(context.Context, store.DBTX, string, stri
 	s.hookMu.Unlock()
 }
 func (s *Service) SetChanged(fn func()) { s.hookMu.Lock(); s.onChanged = fn; s.hookMu.Unlock() }
-func (s *Service) SetApplied(fn func(context.Context, store.DBTX, string) error) {
-	s.hookMu.Lock()
-	s.appliedHook = fn
-	s.hookMu.Unlock()
-}
 func (s *Service) SetArtistEdited(fn func(context.Context, store.DBTX, string, string, []string) error) {
 	s.hookMu.Lock()
 	s.artistHook = fn

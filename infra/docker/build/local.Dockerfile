@@ -10,7 +10,6 @@ COPY --from=frontend-source /package.json /package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY --from=frontend-source /tsconfig.json /vite.config.ts ./
 COPY --from=frontend-source /src/ ./src/
-COPY --from=frontend-source /tests/ ./tests/
 COPY --from=frontend-source /admin/ ./admin/
 COPY --from=frontend-source /party/ ./party/
 COPY --from=frontend-source /downloads/ ./downloads/

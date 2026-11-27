@@ -25,13 +25,7 @@
 
 ## 真实检查
 
-从仓库根运行 `make db-fresh-check`，使用固定版本的真实 dbmate 和临时 SQLite 文件，验证从空库初始化、重复 migrate 不变、增量 migrate/down 保留曲库数据、逐级回退后业务表全部移除，以及再次 migrate 恢复相同结构与种子数据。检查核对两种方言的基线与增量版本集合，基线 up 不含历史改表或数据转换语句，并验证缓存默认值、统计就绪、外键及关键 CHECK 约束。它不连接或重置开发数据库，也不代替真实 MySQL 验证。
-
-`make db-sqlite-check` 执行迁移检查及真实 Go SQLite 事务/锁/HTTP 测试；`make go-backend-test` 覆盖全部 SQLite 业务行为。
-
-`make db-mysql-check` / `make go-mysql-check` 自动创建随机命名、仅回环发布的临时 MySQL 容器，运行真实 Go 业务 HTTP、类型、事务和二进制列验证，只删除自己创建的测试容器。无需指向已有业务库。`make db-mysql-up` 仍可独立启动开发 MySQL；开发运行时显式导出配置，不把其数据卷当测试清理目标。无数据库或启动失败时返回非零。
-
-连接成功仅说明驱动、凭据和基础 SQL 可用。修改业务时仍须分别验证两种方言的类型、时间、事务、索引、自增键、锁及 JSON 行为；隔离测试通过不代表 NAS 实机部署已验收，实际结果见[验证记录](verification.md)。
+验证首次初始化时使用独立的 SQLite 文件或 MySQL 数据库。两种驱动各自使用成对迁移，部署时显式选择并核对实际连接的数据库。
 
 ## 显式 SQL 与事务约定
 

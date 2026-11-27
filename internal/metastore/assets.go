@@ -125,14 +125,6 @@ func (s *Store) Alias(ctx context.Context, db store.DBTX, legacy, id string) err
 	_, e := db.ExecContext(ctx, s.q["asset-alias-insert"], legacy, id, legacy)
 	return e
 }
-func (s *Store) ResolveAsset(ctx context.Context, db store.DBTX, id string) (string, error) {
-	var mapped string
-	e := db.QueryRowContext(ctx, s.q["asset-alias-read"], id).Scan(&mapped)
-	if errors.Is(e, sql.ErrNoRows) && metastandard.SHA256.MatchString(id) {
-		return id, nil
-	}
-	return mapped, e
-}
 
 // References replaces one owner's complete reference set atomically. CURRENT
 // has no expiry. IMPORT/EXPORT leases are renewed before each bounded batch.

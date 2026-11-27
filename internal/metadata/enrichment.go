@@ -297,16 +297,7 @@ func (s *Service) saveApplied(ctx context.Context, tx store.DBTX, song map[strin
 			return e
 		}
 	}
-	if e := s.Touch(ctx, tx, text(song["id"])); e != nil {
-		return e
-	}
-	s.hookMu.RLock()
-	fn := s.appliedHook
-	s.hookMu.RUnlock()
-	if fn != nil {
-		return fn(ctx, tx, text(song["id"]))
-	}
-	return nil
+	return s.Touch(ctx, tx, text(song["id"]))
 }
 func (s *Service) applyLocked(ctx context.Context, tx store.DBTX, id string, in ApplyInput, expected string, auto ...bool) (Applied, error) {
 	automatic := len(auto) > 0 && auto[0]

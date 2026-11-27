@@ -21,21 +21,6 @@
 
 ## 从零验证
 
-```sh
-# 无需启动后端、前端或 Docker；仅使用临时 SQLite，结束自动清理。
-make db-fresh-check
-
-# 从临时 SQLite 启动真实 Go 服务并验证 HTTP、显式 SQL 和业务结构。
-make db-sqlite-check
-
-# 完整 Go 业务回归；各测试使用各自隔离数据。
-make go-backend-test
-```
-
-`db-fresh-check` 使用真实 dbmate，验证首次 `up`、重复 `migrate`、逐级 `down` 和再次建库，比较完整结构及种子，并检查外键、热度/固定约束、空业务数据和默认值；还验证增量迁移及其回退保留原曲库和任务记录、真实 parent 关系被导入。它固定使用自身临时目录，不读取本地 `.env`、不使用 `SQLITE_PATH`、不操作任何已有数据库。此检查也接入 `db-sqlite-check` 和 Go CI。
-
-`make db-mysql-check` 自动启动独占的 MySQL Docker 容器，绑定本机随机端口并使用隔离数据；执行真实 SQL、事务与 HTTP 业务回归后只清理该测试实例。它不读取已有业务 MySQL 配置，也不操作已有库。连接成功不等于业务兼容，未运行该检查时应明确标记未验证。
-
 手工从零启动可给 `SQLITE_PATH` 指定一个全新文件路径，或使用新的 Docker Compose 项目与其独立数据卷；不要用旧库验证这份基线。现有命名卷和实际数据库由使用者保留或另行处理，本次整理不删除它们。
 
 连接及驱动选择 见[数据库策略](../docs/database-strategy.md)，账号与主密钥见[认证说明](../docs/authentication.md)。数据库、WAL/SHM、凭据和主密钥不得提交；切换驱动 不自动迁移数据。
@@ -46,13 +31,13 @@ make go-backend-test
 
 ## 伴奏配方增量迁移
 
-`202611090002_audio_separation_profiles.sql` 为 SQLite/MySQL 增加任务/批次 recipe_json 和 media_audio_selection；不修改已部署初始基线。默认旧行按 LEGACY_DEMUCS/AAC 解释；新配方隔离缓存，当前版本按媒体指纹绑定。`make db-fresh-check` 验证空库、重复应用及回滚重建；未连接真实 MySQL 的检查不能代替 MySQL 验收。
+`202611090002_audio_separation_profiles.sql` 为 SQLite/MySQL 增加任务/批次 recipe_json 和 media_audio_selection；不修改已部署初始基线。默认旧行按 LEGACY_DEMUCS/AAC 解释；新配方隔离缓存，当前版本按媒体指纹绑定。
 
-`202611100002_music_platform_defaults.sql` 在 SQLite/MySQL 中将未修改的安装种子调整为启用网易云、QQ、酷狗、酷我、汽水五个平台，自动应用仍默认关闭；精确匹配初始值及其时间标记，不覆盖任何已保存的配置。回退同样仅还原未修改的种子。`make db-fresh-check` 验证默认值、重复迁移和已保存配置的升级/回退保护；真实 MySQL 测试验证相同接口行为。
+`202611100002_music_platform_defaults.sql` 在 SQLite/MySQL 中将未修改的安装种子调整为启用网易云、QQ、酷狗、酷我、汽水五个平台，自动应用仍默认关闭；精确匹配初始值及其时间标记，不覆盖任何已保存的配置。回退同样仅还原未修改的种子。
 
 ## 歌手封面批次增量
 
-SQLite/MySQL 的 `202611100001_artist_artwork_batches.sql` 只新增封面批次及逐歌手结果两张表和队列/时间索引，不改变既有曲库、图片、账号或配置。请求标识唯一，选定平台和范围快照随批次保存；在途项重启后重新排队，图片仍以原 generation 保护。down 只移除这两张任务表，会丢失对应批次历史，应先完成任务，不在正式运行中回退。`make db-fresh-check` 覆盖新建、重复迁移、升级保留和逐级回退重建；真实 MySQL 使用 `make db-mysql-check`。
+SQLite/MySQL 的 `202611100001_artist_artwork_batches.sql` 只新增封面批次及逐歌手结果两张表和队列/时间索引，不改变既有曲库、图片、账号或配置。请求标识唯一，选定平台和范围快照随批次保存；在途项重启后重新排队，图片仍以原 generation 保护。down 只移除这两张任务表，会丢失对应批次历史，应先完成任务，不在正式运行中回退。
 
 
 `202611100003_media_library_workflows.sql` 在既有基线上新增共享系列、字段快照及版本基线、来源级导入任务与明细、持久入库请求，并为分享任务补充共享曲库版本。导入明细与歌曲资料按批事务提交，服务重启后继续；媒体核验独立于资料存储。两种数据库使用同一新迁移编号，基线未修改；该迁移 down 仅用于隔离验证，会移除本轮工作流和共享记录，不删除原媒体。
@@ -61,8 +46,7 @@ SQLite/MySQL 的 `202611100001_artist_artwork_batches.sql` 只新增封面批次
 ## 元数据标准增量迁移
 
 SQLite/MySQL 成对新增 `202611110001_metadata_standard.sql`，保留已部署基线。新增正式文档及层级/搜索投影、位置、字段证据/差异/回执、资源与引用租约、不可变共享修订登记、共享身份映射、封面保存任务和旧共享资料迁移游标；媒体位置状态与 v4 任务信息独立保存。启动时旧媒体按“一文件一版本”分批登记，保留原 ID，不按同名合并；旧附件缺失只标记待恢复，不抹除文字资料。`metadata_document` 保存当前值和修订，不提供历史回滚。
-
-`make db-fresh-check` 覆盖此增量的应用、重复迁移、逐级回退和重建；实际 MySQL 行为使用 `make db-mysql-check` 的随机隔离数据库。down 只供隔离验证，会移除标准资料结构、证据和资源登记，不用于正式系统降级。持久附件目录必须与业务数据库配套备份，v4 资料包用于可移植曲库资料，不能替代账号/密钥和系统运行状态备份。
+down 只供隔离验证，会移除标准资料结构、证据和资源登记，不用于正式系统降级。持久附件目录必须与业务数据库配套备份，v4 资料包用于可移植曲库资料，不能替代账号/密钥和系统运行状态备份。
 
 ## 匹配参数默认值
 
@@ -70,4 +54,4 @@ SQLite/MySQL 的 `202611120003_matching_defaults.sql` 将未保存过的安装�
 
 ## NAS 共享收藏
 
-SQLite/MySQL 成对新增 `202611140001_shared_favorites.sql`，只创建 `nas_favorite` 和 `nas_favorites_state`。收藏保存歌曲 ID、加入时间和辨认已移除歌曲所需的信息快照，同一状态行序列化批量写入，修订号每次有效变更只增加一次。没有媒体级联删除，也不导入旧手机或电视收藏。服务启动自动应用增量；down 仅用于隔离验证，会移除收藏集合，保留原曲库和媒体。`make db-fresh-check` 覆盖重复迁移、回退和重建，HTTP/服务测试覆盖整批回滚、幂等和重新打开数据库后的读取。真实 MySQL 验证仍使用 `make db-mysql-check`。
+SQLite/MySQL 成对新增 `202611140001_shared_favorites.sql`，只创建 `nas_favorite` 和 `nas_favorites_state`。收藏保存歌曲 ID、加入时间和辨认已移除歌曲所需的信息快照，同一状态行序列化批量写入，修订号每次有效变更只增加一次。没有媒体级联删除，也不导入旧手机或电视收藏。服务启动自动应用增量；down 仅用于隔离验证，会移除收藏集合，保留原曲库和媒体。

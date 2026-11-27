@@ -494,10 +494,6 @@ func (s *Store) PageSource(ctx context.Context, db store.DBTX, kind, search, sou
 	}
 	return items, total, rows.Err()
 }
-func (s *Store) Children(ctx context.Context, db store.DBTX, id string) ([]metastandard.Document, error) {
-	items, _, e := s.ChildrenPage(ctx, db, id, 0, 200)
-	return items, e
-}
 func (s *Store) ChildrenPage(ctx context.Context, db store.DBTX, id string, offset, size int) ([]metastandard.Document, int64, error) {
 	if size < 1 || size > 200 || offset < 0 {
 		return nil, 0, &Problem{400, "分页参数无效"}

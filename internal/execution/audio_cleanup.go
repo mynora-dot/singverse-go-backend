@@ -8,21 +8,26 @@ import (
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
 
+const (
+	audioCleanupInitialDelay = time.Second
+	audioCleanupPollInterval = 30 * time.Second
+)
+
 func (s *Service) recordAudioCleanup(ctx context.Context, db store.DBTX, id string, result map[string]any) error {
 	state := str(result, "cleanupState")
 	if !oneOf(state, "PENDING", "RELEASED") {
 		state = ""
 	}
-	_, err := s.exec(ctx, db, "audio-cleanup-mark", map[string]any{"id": id, "state": state, "next": now() + 30000})
+	_, err := s.exec(ctx, db, "audio-cleanup-mark", map[string]any{
+		"id": id, "state": state, "next": now() + audioCleanupPollInterval.Milliseconds(),
+	})
 	return err
 }
 
-func (s *Service) watchCancelledAudioCleanup(ctx context.Context, id string) error {
-	return s.watchAudioCleanupIn(ctx, s.db, id)
-}
-
 func (s *Service) watchAudioCleanupIn(ctx context.Context, db store.DBTX, id string) error {
-	_, err := s.exec(ctx, db, "audio-cleanup-watch", map[string]any{"id": id, "next": now() + 1000})
+	_, err := s.exec(ctx, db, "audio-cleanup-watch", map[string]any{
+		"id": id, "next": now() + audioCleanupInitialDelay.Milliseconds(),
+	})
 	return err
 }
 
@@ -42,22 +47,24 @@ func (s *Service) pollAudioCleanup(ctx context.Context) {
 		id := str(row, "id")
 		// Reserve the next poll before contacting a node. Errors and restarts
 		// therefore retain a bounded retry rate rather than a tight loop.
-		if _, err = s.exec(ctx, s.db, "audio-cleanup-defer", map[string]any{"id": id, "next": now() + 30000}); err != nil {
+		if _, err := s.exec(ctx, s.db, "audio-cleanup-defer", map[string]any{
+			"id": id, "next": now() + audioCleanupPollInterval.Milliseconds(),
+		}); err != nil {
 			continue
 		}
-		connection, e := s.connection(ctx, str(row, "node_origin"))
-		if e != nil {
+		connection, err := s.connection(ctx, str(row, "node_origin"))
+		if err != nil {
 			continue
 		}
-		state, e := s.call(ctx, connection, "/internal/v1/audio-roles/tasks/"+id, "GET", nil)
-		if e != nil || str(state, "id") != id || !oneOf(str(state, "state"), "SUCCEEDED", "FAILED", "CANCELLED") {
+		state, err := s.call(ctx, connection, "/internal/v1/audio-roles/tasks/"+id, "GET", nil)
+		if err != nil || str(state, "id") != id || !oneOf(str(state, "state"), "SUCCEEDED", "FAILED", "CANCELLED") {
 			continue
 		}
 		cleanup := obj(state["result"])
 		_ = s.transaction(ctx, "AUDIO_JOB", id, func(tx *sqlx.Tx) error {
-			current, e := s.one(ctx, tx, "audio-job", map[string]any{"id": id})
-			if e != nil {
-				return e
+			current, err := s.one(ctx, tx, "audio-job", map[string]any{"id": id})
+			if err != nil {
+				return err
 			}
 			if !oneOf(str(current, "state"), "SUCCEEDED", "FAILED", "CANCELLED") || !oneOf(str(current, "cleanup_state"), "PENDING", "CHECK") {
 				return nil
@@ -72,8 +79,10 @@ func (s *Service) pollAudioCleanup(ctx context.Context) {
 				delete(result, "cleanupState")
 				delete(result, "cleanupError")
 			}
-			if _, e = s.exec(ctx, tx, "audio-cleanup-result", map[string]any{"id": id, "result": encoded(result), "now": now()}); e != nil {
-				return e
+			if _, err := s.exec(ctx, tx, "audio-cleanup-result", map[string]any{
+				"id": id, "result": encoded(result), "now": now(),
+			}); err != nil {
+				return err
 			}
 			return s.recordAudioCleanup(ctx, tx, id, result)
 		})

@@ -285,7 +285,7 @@ func (s *Service) pair(ctx context.Context, c candidate, previous Settings, revi
 	if err != nil {
 		return Settings{}, err
 	}
-	check, err := s.Probe(ctx, &Connection{c.endpoint, token, previous.Mappings})
+	check, err := s.Probe(ctx, &Connection{Origin: c.endpoint, Token: token})
 	if err != nil {
 		return Settings{}, err
 	}

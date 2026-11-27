@@ -37,4 +37,4 @@
 
 ## 检查
 
-`make docker-check` 只读检查当前部署。`make go-container-check`、`make auth-docker-check` 和 `infra/docker/check-compose.py` 及 `infra/docker/check-compute-compose.py` 使用随机隔离资源，并只清理自身资源。真实微信、电视、NAS 和其他 CPU/GPU 架构验收单独记录。
+部署后核对 `/api/health`、管理端、亲友点歌和客户端下载入口。微信、电视、NAS 和各 CPU/GPU 架构按实际设备验收。

@@ -223,16 +223,7 @@ func (s *Service) completeRemote(ctx context.Context, task map[string]any, resul
 		if _, e = s.exec(ctx, tx, "dav-finishTask", a); e != nil {
 			return e
 		}
-		if e = s.Touch(ctx, tx, text(task["song_id"])); e != nil {
-			return e
-		}
-		s.hookMu.RLock()
-		hook := s.appliedHook
-		s.hookMu.RUnlock()
-		if hook != nil {
-			return hook(ctx, tx, text(task["song_id"]))
-		}
-		return nil
+		return s.Touch(ctx, tx, text(task["song_id"]))
 	})
 }
 

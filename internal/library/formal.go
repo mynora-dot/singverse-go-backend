@@ -428,11 +428,3 @@ func (s *Service) FormalLyrics(ctx context.Context, tx store.DBTX, media string)
 	}
 	return nil, nil
 }
-
-func (s *Service) StringIdentity(ctx context.Context, tx store.DBTX, media string) string {
-	song, variant, e := s.FormalIDs(ctx, tx, media)
-	if e != nil {
-		return ""
-	}
-	return fmt.Sprintf("%s/%s/%s", song, variant, media)
-}

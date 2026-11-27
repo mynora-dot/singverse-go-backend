@@ -1,7 +1,6 @@
 package library
 
 import (
-	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -237,12 +236,6 @@ func uuid() string {
 		panic(err)
 	}
 	b[6] = (b[6] & 15) | 64
-	b[8] = (b[8] & 63) | 128
-	return formatUUID(b)
-}
-func songID(source, path string) string {
-	b := md5.Sum([]byte(source + "\x00" + path))
-	b[6] = (b[6] & 15) | 48
 	b[8] = (b[8] & 63) | 128
 	return formatUUID(b)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"os"
@@ -119,15 +118,7 @@ func (s *Service) HasLocalInput(id string) bool {
 	_, ok := s.localInputs[id]
 	return ok
 }
-func (s *Service) ServeLocalInput(c *gin.Context) {
-	if err := s.ServeLocalInputWith(c.Request.Context(), c.Writer, c.Request, c.Param("id")); err != nil && !c.Writer.Written() {
-		s.report(c, err)
-	}
-}
 func (s *Service) ServeLocalInputWith(ctx context.Context, w http.ResponseWriter, r *http.Request, id string) error {
-	return s.serveLocalInput(ctx, w, r, id)
-}
-func (s *Service) serveLocalInput(ctx context.Context, w http.ResponseWriter, r *http.Request, id string) error {
 	s.mu.Lock()
 	grant := s.localInputs[id]
 	s.mu.Unlock()

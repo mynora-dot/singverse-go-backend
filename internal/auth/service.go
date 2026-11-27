@@ -85,12 +85,6 @@ func New(db *sqlx.DB, dialect string, cfg config.Config, log *slog.Logger) (*Ser
 	return &Service{db: db, Cipher: crypto, log: log, policy: policy, now: timeNow}, nil
 }
 
-func (s *Service) ResetAdmin(ctx context.Context, password string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return ResetAdministrator(ctx, s.db, password)
-}
-
 func (s *Service) transaction(ctx context.Context, fn func(*sqlx.Tx) (any, error)) (any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

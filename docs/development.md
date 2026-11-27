@@ -4,7 +4,7 @@
 
 完整前端从 components.json 固定的正式 Release 获取，或通过 FRONTEND_DIST 显式传入本地 dist。缺少 admin、party、downloads 任一入口必须失败，生产不运行 Node 或 JVM。前端与 compute 的单模块检查分别在各自仓库执行。
 
-使用 make go-backend-test 执行格式、vet、staticcheck、govulncheck、race。首次 make go-tools-setup dbmate-setup 安装仓库本地工具，不修改全局环境。数据库/HTTP 测试使用隔离数据与随机端口。
+使用 `make go-backend-check` 执行格式检查、vet、staticcheck 与 govulncheck。首次使用 `make go-tools-setup dbmate-setup` 安装仓库本地工具。
 
 跨仓验证使用 SINGVERSE_COMPUTE_PROJECT，不自动查找相邻目录。Docker 构建先校验三个发布组件，生产构建缺包或校验失败即停止。具体流程见[多仓库说明](multi-repository.md)。
 

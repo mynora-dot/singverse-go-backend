@@ -47,7 +47,7 @@ SQLite / MySQL 使用 `202611070001_initial_schema.sql` 从空库初始化，由
 
 无效参数 400、未认证 401、CSRF/来源拒绝 403、不存在 404、重复位置 409。错误使用 Problem Details。列表带 `items/page/size/totalElements`，时间是 ISO 8601 UTC。列表中“已配置”仅指数据库配置存在。
 
-验证入口：前端仓库执行 `make frontend-check test`，Go 仓库执行 `make go-backend-test web-check`；MySQL 实例准备好后运行 `make db-mysql-check`，继承的 HTTP 用例同样覆盖媒体来源。浏览器和临时 SQLite 测试不能替代真实 NAS 挂载、微信或 WebDAV 提供者验收。
+本地检查使用前端的 `make frontend-check` 和 Go 的 `make go-backend-check`。NAS 挂载、微信和 WebDAV 提供者需要在实际环境验收。
 
 ## 来源内的文件名识别
 

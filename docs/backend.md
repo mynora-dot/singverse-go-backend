@@ -53,20 +53,9 @@ SQLite 创建必要父目录，单连接；启动先取得部署锁并执行固�
 
 新增或整理复杂流程时，按实际业务步骤提取函数，使用能表达角色的局部变量名；路由注册保留路径与处理函数的对应关系。注释着重解释幂等顺序、事务、授权和状态边界，业务 SQL 与结果转换仍归各自模块。
 
-```sh
-make go-backend-test       # gofmt/vet/staticcheck/govulncheck/race
-make web-check db-sqlite-check
-make go-mysql-check       # 随机隔离 MySQL 容器
-make go-recovery-check    # 原生二进制真实 PTY 账号恢复、独立临时数据
-make go-container-check   # 已构建镜像、随机独占容器/网络、不读取现有卷
-make docker-context-check # 实际 COPY 构建上下文排除规则，不读取部署卷
-SINGVERSE_COMPUTE_PROJECT=/absolute/checkout make go-compute-check # 显式固定 compute 检出
-SINGVERSE_COMPUTE_PROJECT=/absolute/checkout make backend-check # Go 检查及真实联动；Python 检查在 compute 仓库执行
-```
+本地静态检查使用 `make go-backend-check`。旧版验收结果见[验证记录](verification.md)和 [Go 迁移历史记录](go-migration-verification.md)。
 
-`internal/library` 测试覆盖来源/规则/扫描原子发布、WebDAV 范围与本地下载并发；`internal/metadata` 覆盖人工字段保护、平台/封面安全、有限回源授权、任务恢复、资料包往返、导出重试与导入收据；歌曲元数据支持网易云、QQ、酷狗、酷我、汽水、咪咕，平台封面保留原图或所选高清版本，不再受 4096 像素门槛影响（网络读取 32 MiB / 20 秒，上传与持久保存统一支持 32 MiB）。歌手图片支持网易云、QQ、酷狗、酷我、汽水和 TheAudioDB；酷狗复用元数据平台设置，酷我/汽水读取公开歌手目录，同名歧义继续确认候选，测试覆盖长 ID、歌曲核对、受限图片下载及批次确认入库。其他模块覆盖认证、TV/H5、分类、队列、AI、下载、播放、缓存及持久后台投影。本轮实测与限制见[验证记录](verification.md)；[Go 迁移历史记录](go-migration-verification.md)只说明拆分前的对应版本。
-
-`go-container-check` 默认检查单业务镜像 `singverse:local`，可用 `GO_BACKEND_IMAGE` 指定已构建的架构镜像；不会拉取或构建镜像。恢复检查拒绝运行中部署锁和非 TTY 输入，验证口令隐藏、会话撤销、MFA 清除及业务数据/主密钥保留。
+歌曲元数据支持网易云、QQ、酷狗、酷我、汽水和咪咕。平台封面保留原图或所选高清版本，网络读取上限为 32 MiB / 20 秒，上传和持久保存上限为 32 MiB。歌手图片支持网易云、QQ、酷狗、酷我、汽水和 TheAudioDB。酷狗复用元数据平台设置，酷我和汽水读取公开歌手目录，同名歧义交由管理员确认。
 
 音乐平台配置在管理端“设置 → 音乐平台”，复用受管理员会话和 CSRF 保护的 `/api/v1/metadata/settings`。新安装默认开启五个平台，自动应用默认关闭；增量迁移只修改未动过的安装种子，保存过的配置保持原值。
 
@@ -82,4 +71,4 @@ SINGVERSE_COMPUTE_PROJECT=/absolute/checkout make backend-check # Go 检查及�
 
 规范、字段字典、JSON Schema、有效/无效样例及 v4 容器见 [contracts/metadata](../contracts/metadata/README.md)。`internal/metastandard` 提供严格 JSON、JCS 摘要和语义校验；`internal/metastore` 管理正式文档、字段决定、证据基线、幂等回执和持久资源。`internal/library` 提供 SONG/VARIANT/MEDIA 与位置 API，旧媒体接口保持适配；`internal/metadata` 编排附件与分享任务，compute 只提交提取结果。
 
-SQLite/MySQL 新增 `202611110001_metadata_standard.sql`；旧数据启动时分批回填，媒体 ID 保留。正式附件在 `WEBDAV_METADATA_PATH/assets/`，缩略图在 `METADATA_CACHE_PATH/thumbnails/`；系统备份同时包含数据库、主密钥与持久资料目录。独立校验无须服务、数据库或 compute：从根目录执行 `make metadata-standard-check`，或 `sh scripts/run-go.sh run ./cmd/metadata-validate /path/to/share.zip`。
+SQLite/MySQL 新增 `202611110001_metadata_standard.sql`；旧数据启动时分批回填，媒体 ID 保留。正式附件在 `WEBDAV_METADATA_PATH/assets/`，缩略图在 `METADATA_CACHE_PATH/thumbnails/`；系统备份同时包含数据库、主密钥与持久资料目录。独立校验无须服务、数据库或 compute：从根目录执行 `sh scripts/run-go.sh run ./cmd/metadata-validate /path/to/share.zip`。

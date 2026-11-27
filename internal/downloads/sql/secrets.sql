@@ -1,1 +1,0 @@
-SELECT secret_encrypted FROM lx_script

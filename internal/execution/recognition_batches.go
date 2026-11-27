@@ -131,7 +131,9 @@ func (s *Service) recoverRecognitionResults(ctx context.Context) error {
 			batchCursor, songCursor = str(item, "batch_id"), str(item, "song_id")
 			result := decoded(item["result_json"])
 			err = s.transaction(ctx, "AUDIO_BATCH", batchCursor, func(tx *sqlx.Tx) error {
-				state, detail := str(item, "state"), str(item, "error")
+				previousState := str(item, "state")
+				state := previousState
+				var detail string
 				if state == "REVIEW" {
 					status, e := s.audioStatusWith(ctx, tx, songCursor, false)
 					if e != nil {
@@ -149,10 +151,13 @@ func (s *Service) recoverRecognitionResults(ctx context.Context) error {
 				} else {
 					detail = recognitionFailure(map[string]any{"error": str(item, "job_error"), "result_json": item["result_json"]})
 				}
-				if state == str(item, "state") && detail == str(item, "error") {
+				if state == previousState && detail == str(item, "error") {
 					return nil
 				}
-				_, e := s.exec(ctx, tx, "batch-repair-recognition-item", map[string]any{"batch": batchCursor, "song": songCursor, "job": str(item, "job_id"), "previous": str(item, "state"), "state": state, "error": detail, "now": now()})
+				_, e := s.exec(ctx, tx, "batch-repair-recognition-item", map[string]any{
+					"batch": batchCursor, "song": songCursor, "job": str(item, "job_id"),
+					"previous": previousState, "state": state, "error": detail, "now": now(),
+				})
 				if e != nil {
 					return e
 				}

@@ -46,4 +46,4 @@ Go `compute` 包提供 AUTO/MANUAL/DISABLED 配置、加密凭据、局域网配
 
 JSON 请求日志记录请求 ID、方法、路径、状态和耗时，不记录 Authorization、任务正文或来源凭据。业务错误统一映射 Problem Details；诊断不回显媒体路径或密钥。
 
-单元测试覆盖标签预算、哈希缓存失效、导出/回收竞态、取消和日志释放；随机回环 HTTP 测试覆盖认证、回源、请求边界和 OpenAPI。Go 仓库的 `SINGVERSE_COMPUTE_PROJECT=/absolute/compute-checkout make backend-check` 验证真实 Go/Python/FFmpeg 及节点离线、上线和退出，使用隔离数据库和自制媒体。模型或硬件所需环境缺失时单独记录，测试通过不代替 NAS、微信或硬件真机验收。
+使用 `make compute-check PYTHON=python3.12` 检查计算节点源码语法。硬件、媒体回源和 Go 联动需要在实际部署环境验证。

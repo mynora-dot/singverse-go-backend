@@ -109,12 +109,6 @@ make docker-down
 
 私有仓库先在部署主机执行 `docker login <仓库域名>`，再运行 `make docker-pull docker-image-up`。切换镜像仓库只修改前缀，保持 `singverse-go-app` 项目名及现有卷；先核对相同固定版本的 digest，详见 [运维指南](OPERATIONS.md)。
 
-```sh
-make docker-config-check docker-context-check docker-test
-make go-container-check auth-docker-check
-python3 infra/docker/check-bundled-releases.py --image singverse:local
-```
-
 硬件覆盖仍需真实设备验证。发布配置见 [PUBLISHING](PUBLISHING.md)，历史迁移注意事项见 [OPERATIONS](OPERATIONS.md)。
 
 RK3566 ARM64 板可使用 [RK3566 测试部署](rk3566/README.md)，使用独立测试项目和 `18081` 端口；提供 RKNN 音频映射及可选 MPP 视频测试，设备路径须按板端驱动核对。

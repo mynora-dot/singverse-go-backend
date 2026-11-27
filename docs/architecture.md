@@ -47,7 +47,7 @@ Python是项目内部的执行层，产品继续按曲库、播放兼容和AI能
 
 后续任务在各业务应用服务内完成权限与输入校验，再经同一内部计算客户端调用Python。任务状态、媒体引用、结果审核与数据库写入属于Go；Python负责本地资源调度、工具/模型执行与受限工作目录。新增能力复用这一条路径，不能让前端直连执行层或让Python绕过业务权限写入。
 
-Go 仓库执行 `SINGVERSE_COMPUTE_PROJECT=/absolute/compute-checkout make backend-check`，组合 Go 静态分析/race 与真实两进程集成测试；compute 检出须已准备 `.venv` 和固定 FFmpeg。Python HTTP/契约检查在 compute 仓库执行 `make compute-check`。联动覆盖节点未启动、上线与退出时的主服务健康及 H5。两仓分别维护 CI，不隐式检出彼此；本地通过不代表远程 CI 已通过。
+Go 仓库使用 `make go-backend-check`，compute 仓库使用 `make compute-check PYTHON=python3.12`。业务联动使用明确指定的 Go 和 compute 实例。
 
 ## 当前连接与故障隔离
 

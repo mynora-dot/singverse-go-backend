@@ -11,9 +11,6 @@ func (s *Service) AudioBatch(ctx context.Context, id string) (map[string]any, er
 func (s *Service) CancelAudioBatch(ctx context.Context, id string) (map[string]any, error) {
 	return s.cancelBatch(ctx, id)
 }
-func (s *Service) RetryAudioBatch(ctx context.Context, id, backend, kind string) (map[string]any, error) {
-	return s.retryBatch(ctx, id, backend, kind)
-}
 func (s *Service) CacheSettings(ctx context.Context) (map[string]any, error) {
 	return s.cacheSettings(ctx)
 }

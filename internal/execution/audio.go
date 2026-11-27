@@ -1015,22 +1015,15 @@ func (s *Service) PortableAudio(ctx context.Context, songID string) (map[string]
 	v["separationPolicy"] = "GENERATE_LOCALLY"
 	return v, nil
 }
-func (s *Service) ImportAudioClaim(ctx context.Context, songID string, claim map[string]any) error {
-	return s.transaction(ctx, "", "", func(tx *sqlx.Tx) error { return s.storeAudioClaim(ctx, tx, songID, claim, false) })
-}
 
 // ImportAudioClaimWith receives only claims adopted by the package merge
 // policy, including revisions replacing a previously accepted claim.
 func (s *Service) ImportAudioClaimWith(ctx context.Context, tx store.DBTX, songID string, claim map[string]any) error {
-	return s.storeAudioClaim(ctx, tx, songID, claim, true)
-}
-
-func (s *Service) storeAudioClaim(ctx context.Context, tx store.DBTX, songID string, claim map[string]any, replace bool) error {
 	if len(encoded(claim)) > 16384 {
 		return nil
 	}
 	prior, err := s.optional(ctx, tx, "audio-claim", map[string]any{"song": songID})
-	if err != nil || prior != nil && !replace {
+	if err != nil {
 		return err
 	}
 	song, err := s.song(ctx, tx, songID)

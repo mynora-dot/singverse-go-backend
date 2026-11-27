@@ -108,7 +108,7 @@ SQLite/MySQL 的 `202611070001_initial_schema.sql` 直接定义 `filename_parser
 
 ## 验证
 
-`make frontend-check`、`make go-backend-test`、`make web-check` 沿用现有入口。HTTP 测试验证迁移、共享更新、引用保护、方案 CRUD、旧接口、并发竞争与权限；可选 `mysql-check` 中的 `MySqlFilenameParserIT` 复用相同断言，仅对独立测试库运行。实际检查和浏览器/重启验收结果见[验证记录](verification.md)。
+本地检查使用前端的 `make frontend-check` 和 Go 的 `make go-backend-check`。旧版验收结果见[验证记录](verification.md)。
 
 被媒体来源引用的解析方案不能删除，须先修改或移除来源绑定。方案改名、成员启停/排序、共享规则编辑只影响下次扫描；已保存歌曲元数据保留当时的配置修订号，重新扫描后更新。
 

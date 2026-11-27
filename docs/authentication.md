@@ -21,7 +21,7 @@ MFA使用RFC6238 TOTP：认证器扫描本地生成的二维码（或输入手�
 
 ## 数据库迁移与运行
 
-[database/migrations](../database/migrations)分别维护SQLite/MySQL的`202611070001_initial_schema.sql`，从空库直接创建完整业务结构，当前不提供旧版数据库升级路径。dbmate2.37.0官方二进制按SHA256固定，执行make dbmate-setup安装到被忽略的.tools；Docker构建自动安装，Go启动在接收请求之前执行同一dbmate migrate。迁移超时或失败即停止，普通启动不执行down。后续结构变更另加版本；空库及回退重建检查使用make db-fresh-check，详见[数据库策略](database-strategy.md)。
+[database/migrations](../database/migrations)分别维护SQLite/MySQL的`202611070001_initial_schema.sql`，从空库直接创建完整业务结构，当前不提供旧版数据库升级路径。dbmate2.37.0官方二进制按SHA256固定，执行make dbmate-setup安装到被忽略的.tools；Docker构建自动安装，Go启动在接收请求之前执行同一dbmate migrate。迁移超时或失败即停止，普通启动不执行down。后续结构变更通过新增迁移交付。初次建库与回退边界见[数据库策略](database-strategy.md)。
 
 主机 Go 启动前先 `make go-backend-build dbmate-setup`，再按[后端说明](backend.md)从本仓库根目录运行原生二进制。默认SQLite旁创建auth/master.key，可通过SINGVERSE_AUTH_KEY_FILE设置绝对路径；MySQL主机默认位于仓库data/auth。Docker使用singverse-data和独立singverse-secrets卷，密钥/secrets/master.key。数据库已有MFA密文但密钥缺失/错误时明确启动失败，不生成替代密钥。
 
@@ -49,9 +49,9 @@ TLS 使用外部反向代理转发到业务 HTTP 入口，不再提供内置 Ngi
 
 ## 验证入口
 
-前端仓库执行 `make frontend-check test` 验证交互与请求行为；make go-backend-test验证SQLite真实HTTP与安全行为；make db-mysql-check在真实MySQL上重复账号测试，脚本自行创建隔离测试容器。`SINGVERSE_COMPUTE_PROJECT=/absolute/compute-checkout make backend-check` 验证真实 Go/Python 媒体授权往返与故障隔离。make docker-check只登录/退出当前实例，不修改安全设置；若已改密或启用MFA，通过SINGVERSE_CHECK_PASSWORD、SINGVERSE_CHECK_CODE提供测试凭据，避免在共享终端历史中明文填写。
+本地检查使用前端的 `make frontend-check` 和 Go 的 `make go-backend-check`。
 
-make auth-docker-check使用现有本地镜像，在随机独立项目与新卷里执行改密、TOTP绑定、容器重建和真实TTY恢复，最后仅删除该测试项目和测试卷。它不更改默认 singverse-go-app 或旧 singverse-app 实例；需要POSIX宿主或Linux CI。跨语言向量见[auth-test-vectors.json](../contracts/openapi/auth-test-vectors.json)，其中密钥/密码是公开测试数据，禁止用于生产。
+跨语言协议样例见 [auth-test-vectors.json](../contracts/openapi/auth-test-vectors.json)。
 
 会话失效的401 Problem type为urn:singverse:auth:session-required，前端据此跳转登录；当前密码或动态码校验失败仍留在表单允许重试。
 

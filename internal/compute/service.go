@@ -68,32 +68,8 @@ type Check struct {
 // Connection is an immutable snapshot for a single operation. Tokens must only
 // travel in the server-to-node Authorization header, never in browser DTOs.
 type Connection struct {
-	Origin   string        `json:"origin"`
-	Token    string        `json:"-"`
-	Mappings []PathMapping `json:"mappings"`
-}
-
-func (c *Connection) MediaPath(value string) string {
-	local, err := filepath.Abs(value)
-	if err != nil {
-		return value
-	}
-	local = filepath.Clean(local)
-	for _, mapping := range c.Mappings {
-		relative, err := filepath.Rel(mapping.LocalRoot, local)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			continue
-		}
-		if relative == "." {
-			relative = ""
-		}
-		remote := strings.TrimRight(strings.ReplaceAll(mapping.RemoteRoot, "\\", "/"), "/") + "/" + filepath.ToSlash(relative)
-		if windowsAbsolute(mapping.RemoteRoot) {
-			return strings.ReplaceAll(remote, "/", "\\")
-		}
-		return remote
-	}
-	return local
+	Origin string `json:"origin"`
+	Token  string `json:"-"`
 }
 
 type failure struct {
@@ -235,27 +211,21 @@ func (s *Service) connection(r settingsRow, input *Save) (*Connection, error) {
 		if s.automaticEndpoint == "" {
 			return nil, nil
 		}
-		return &Connection{s.automaticEndpoint, s.automaticToken(), []PathMapping{}}, nil
+		return &Connection{Origin: s.automaticEndpoint, Token: s.automaticToken()}, nil
 	case "MANUAL":
-		endpoint, maps, secret := r.endpoint, r.mappings, r.secret
-		var err error
+		endpoint, secret := r.endpoint, r.secret
 		if input != nil {
-			endpoint, err = origin(input.Endpoint)
-			if err != nil {
-				return nil, err
-			}
-			maps, err = validatedMappings(input.Mappings)
-			if err != nil {
-				return nil, err
-			}
+			endpoint = input.Endpoint
+		}
+		endpoint, err := origin(endpoint)
+		if err != nil {
+			return nil, err
+		}
+		if input != nil {
 			secret, err = s.credential(r, *input, endpoint)
 			if err != nil {
 				return nil, err
 			}
-		}
-		endpoint, err = origin(endpoint)
-		if err != nil {
-			return nil, err
 		}
 		var token string
 		if secret.Valid {
@@ -264,7 +234,7 @@ func (s *Service) connection(r settingsRow, input *Save) (*Connection, error) {
 				return nil, errors.New("compute credential cannot be decrypted")
 			}
 		}
-		return &Connection{endpoint, token, maps}, nil
+		return &Connection{Origin: endpoint, Token: token}, nil
 	default:
 		return nil, errors.New("invalid stored compute mode")
 	}

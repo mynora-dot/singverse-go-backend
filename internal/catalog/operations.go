@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
 
@@ -36,9 +37,6 @@ func (s *Service) ChangeFavorites(ctx context.Context, input FavoriteChange) (an
 func (s *Service) Classification(ctx context.Context, song string) (State, error) {
 	return s.state(ctx, s.db, song)
 }
-func (s *Service) ChangeClassification(ctx context.Context, song string, input Change) (any, error) {
-	return s.change(ctx, song, input)
-}
 func (s *Service) ClassificationTasks(ctx context.Context, page, size int) (any, error) {
 	return s.tasks(ctx, page, size)
 }
@@ -47,9 +45,6 @@ func (s *Service) ClassificationTask(ctx context.Context, id string) (any, error
 }
 func (s *Service) ControlClassificationTask(ctx context.Context, id, action string) (any, error) {
 	return s.control(ctx, id, action)
-}
-func (s *Service) RetryClassificationItem(ctx context.Context, task, item string) (any, error) {
-	return s.retry(ctx, task, item)
 }
 
 // Artist queries must not call ensureArtists: the legacy list lazily creates

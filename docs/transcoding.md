@@ -157,7 +157,7 @@ compute 重启将未结束执行标为失败；Go 离线队列核对后重新执
 
 ## 验证和当前限制
 
-compute 仓库执行 `make compute-check`，首次应执行 `make transcode-tools`，普通 FFmpeg 可能缺少字幕/HDR 滤镜。Go 仓库执行 `SINGVERSE_COMPUTE_PROJECT=/absolute/compute-checkout make backend-check`，包含真实 Go/Python/FFmpeg、本地及 WebDAV、离线后节点退出的集成测试。前端仓库执行 `make frontend-check test`，TV 仓库执行 `make build`。
+计算节点使用 `make transcode-tools` 安装固定版本的 FFmpeg 和 ffprobe。字幕、HDR 和硬件加速应使用实际部署设备与对应媒体验证。
 
 原生三系统 CI 配置运行同一套真实媒体测试，不代表远程 CI 已通过；具体本次结果和硬件/终端未验收项见 [验证记录](verification.md)。已增加硬件图和 DV P5/P8 转换，并以实际 PGS/DVD 码流验证位图烧录时序；其他厂商 GPU、各终端和持续负载仍需实机验收。新终端适配器仍需实现自身授权、实际能力报告及播放器集成。
 
@@ -174,15 +174,6 @@ compute 仓库执行 `make compute-check`，首次应执行 `make transcode-tool
 ## 流水线 v2 与真机核验
 
 流水线升级为 v2，新离线任务和自动版本复用只使用 v2。进行中的旧离线任务先取消原执行，再用新执行 ID 重排；旧实时会话要求客户端重建。已保存的旧文件不擅自删除，管理员仍可管理。
-
-在 compute 仓库执行 `make transcode-fixtures`，可选下载三份官方 P5/P8.1/P8.4 样本，SHA-256 固定在 `tools/verification-media.lock.json`；普通测试保持离线，不下载第三方素材。测试素材不提交、不进入镜像。真机命令：
-
-```sh
-export PATH="$PWD/.tools/jellyfin-ffmpeg/bin:$PWD/.tools/jellyfin-ffmpeg:$PATH"
-.venv/bin/python tests/smoke/verify_hardware.py --backend videotoolbox --fixtures .tools/transcode-fixtures
-```
-
-支持选择 qsv/vaapi/nvenc/amf/videotoolbox/rkmpp/software，`--device` 指定 Linux 渲染节点。报告含输入编码/HDR/profile、实际流水线、耗时、输出尺寸及观测 RSS；GPU 利用率/显存无法从通用无特权接口获得时报告 null，不虚构数据。没有设备或编码器不可用时命令失败，不跳过断言伪装通过。
 
 每个媒体子进程设置并发、线程、执行时间、输出大小和观测 RSS 预算。RSS 超限终止所属进程树；Windows 使用进程内存计数器、Linux 读取该子进程 `/proc`、macOS 使用该子进程 `ps`。采样不能替代硬内存隔离，Docker 通过 cgroup 设置整体 CPU/内存硬上限；显存占用仍受驱动和硬件会话限制，不能把 RSS 当作 GPU 显存。`sampledPeakRssBytes=0` 代表未采集到，不能解释为零占用。
 

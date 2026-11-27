@@ -14,7 +14,7 @@
 
 ```sh
 make go-tools-setup dbmate-setup
-make go-backend-test
+make go-backend-check
 make go-backend-build
 make go-backend-run
 ```
@@ -22,7 +22,7 @@ make go-backend-run
 默认从 `components.json` 指定的仓库下载最新正式前端 Release。首次拆分尚未发布前端时，可在前端仓库构建后显式传入完整 dist；三个入口均为必需：
 
 ```sh
-make go-backend-test FRONTEND_DIST=/absolute/path/to/frontend/dist
+make go-backend-check FRONTEND_DIST=/absolute/path/to/frontend/dist
 make go-backend-build FRONTEND_DIST=/absolute/path/to/frontend/dist
 ```
 
@@ -86,19 +86,6 @@ make docker-build COMPONENT_LOCK=/absolute/path/to/components.lock.json
 
 更新提示和跳过记录由各设备本机管理。只读下载不授予管理、曲库或设备权限。完整契约见 [OpenAPI](contracts/openapi/README.md)。
 
-## 验证
+## 静态检查
 
-```sh
-make web-check db-fresh-check db-sqlite-check
-make go-mysql-check
-make docker-test docker-config-check docker-context-check
-make go-container-check auth-docker-check
-```
-
-跨服务真实验证显式指定准备好的 compute 检出目录：
-
-```sh
-SINGVERSE_COMPUTE_PROJECT=/absolute/path/to/compute make go-compute-check
-```
-
-具体本次结果见[验证记录](docs/verification.md)。本地测试不代表远程 Actions、微信、NAS 或真实 Android 设备已经验收。
+Go 代码遵循官方 [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments)。`make go-backend-check` 检查 `gofmt` 格式，并运行 `go vet`、`staticcheck` 和 `govulncheck`。旧版验收结果见[历史验证记录](docs/verification.md)。
