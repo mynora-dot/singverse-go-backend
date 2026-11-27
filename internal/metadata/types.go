@@ -87,9 +87,10 @@ type ApplyInput struct {
 	Fields      []string `json:"fields"`
 }
 type StartInput struct {
-	All      bool     `json:"all"`
-	SongIDs  []string `json:"songIds"`
-	SourceID *string  `json:"sourceId"`
+	All       bool     `json:"all"`
+	SongIDs   []string `json:"songIds"`
+	SourceID  *string  `json:"sourceId"`
+	AutoApply *bool    `json:"autoApply,omitempty"`
 }
 type ReviewApply struct {
 	RequestID        string         `json:"requestId"`

@@ -16,6 +16,8 @@ import (
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,36}$`)
 
+const skippedMetadataReason = "歌曲已有应用结果，本批次保留原资料"
+
 func (s *Service) batchRow(ctx context.Context, db store.DBTX, id string) (map[string]any, error) {
 	r, e := s.row(ctx, db, "meta-batch", map[string]any{"id": id})
 	return r, absent(e, "刮削批次不存在")
@@ -94,18 +96,35 @@ func (s *Service) startHTTP(c *gin.Context) {
 		if e != nil {
 			return e
 		}
-		targets := []map[string]any{}
+		appliedItems, e := s.rows(ctx, tx, "meta-appliedItems", nil)
+		if e != nil {
+			return e
+		}
+		appliedIDs := map[string]bool{}
+		for _, item := range appliedItems {
+			id := text(item["song_id"])
+			if identities[id] == text(item["fingerprint"]) {
+				appliedIDs[id] = true
+			}
+		}
+		type target struct {
+			song map[string]any
+			skip bool
+		}
+		targets := []target{}
 		pending := 0
 		for _, song := range songs {
 			if in.SourceID != nil && text(song["sourceId"]) != *in.SourceID {
 				continue
 			}
-			if !in.All && !contains(ids, text(song["id"])) {
+			songID := text(song["id"])
+			if !in.All && !contains(ids, songID) {
 				continue
 			}
-			song["_fingerprint"] = identities[text(song["id"])]
-			targets = append(targets, song)
-			if !confirmed(song) {
+			song["_fingerprint"] = identities[songID]
+			skip := appliedIDs[songID] || confirmed(song)
+			targets = append(targets, target{song, skip})
+			if !skip {
 				pending++
 			}
 			if len(targets) > 5000 {
@@ -115,8 +134,8 @@ func (s *Service) startHTTP(c *gin.Context) {
 		if !in.All && len(targets) != len(ids) {
 			return conflict("部分歌曲已移除，请刷新列表后重试")
 		}
-		if pending == 0 {
-			return bad("没有待刮削歌曲；已应用的歌曲可从单曲入口重新匹配")
+		if len(targets) == 0 {
+			return bad("当前匹配范围内没有歌曲")
 		}
 		mode := "SELECTED"
 		if in.All {
@@ -125,18 +144,30 @@ func (s *Service) startHTTP(c *gin.Context) {
 		if in.SourceID != nil {
 			mode = "SOURCE"
 		}
+		status := "RUNNING"
+		if pending == 0 {
+			status = "COMPLETED"
+		}
+		autoApply := cfg.AutoApply
+		if in.AutoApply != nil {
+			autoApply = *in.AutoApply
+		}
 		at := now()
-		if _, e = s.exec(ctx, tx, "meta-insertBatch", map[string]any{"id": id, "mode": mode, "providers": encode(cfg.Providers), "autoApply": cfg.AutoApply, "threshold": cfg.Threshold, "skipped": len(targets) - pending, "now": at}); e != nil {
+		if _, e = s.exec(ctx, tx, "meta-insertBatch", map[string]any{
+			"id": id, "mode": mode, "status": status, "providers": encode(cfg.Providers),
+			"autoApply": autoApply, "autoApplyExplicit": in.AutoApply != nil, "threshold": cfg.Threshold, "skipped": len(targets) - pending, "now": at,
+		}); e != nil {
 			return e
 		}
-		for _, song := range targets {
+		for _, target := range targets {
+			song := target.song
 			itemID := uuid()
 			values := current(song)
 			if _, e = s.exec(ctx, tx, "meta-insertItem", map[string]any{"id": itemID, "batchId": id, "songId": song["id"], "fingerprint": fingerprint(song), "title": values["title"], "artists": encode(values["artists"]), "now": at}); e != nil {
 				return e
 			}
-			if confirmed(song) {
-				if _, e = s.itemStatus(ctx, tx, itemID, "PENDING", "SKIPPED_EXISTING", nil, "已有确认元数据且文件未变化，本批次保留原结果"); e != nil {
+			if target.skip {
+				if _, e = s.itemStatus(ctx, tx, itemID, "PENDING", "SKIPPED_EXISTING", nil, skippedMetadataReason); e != nil {
 					return e
 				}
 			}
@@ -392,7 +423,7 @@ func (s *Service) retryHTTP(c *gin.Context) {
 		}
 		previous := text(item["status"])
 		allowed := previous == "REVIEW" || previous == "FAILED"
-		if previous == "MANUAL_APPLIED" {
+		if previous == "MANUAL_APPLIED" && strings.HasPrefix(text(item["error_message"]), "查询期间歌曲已确认") {
 			song, e := s.song(ctx, tx, text(item["song_id"]))
 			allowed = e == nil && !confirmed(song)
 		}
@@ -486,12 +517,37 @@ func (s *Service) finishBatch(ctx context.Context, db store.DBTX, id string) err
 	return s.project(ctx, db, "METADATA", id)
 }
 
+func (s *Service) skipIfApplied(ctx context.Context, tx store.DBTX, item, song map[string]any) (bool, error) {
+	if !confirmed(song) {
+		rows, err := s.rows(ctx, tx, "meta-hasAppliedItem", map[string]any{"songId": song["id"], "fingerprint": fingerprint(song)})
+		if err != nil || len(rows) == 0 {
+			return false, err
+		}
+	}
+	result, err := s.itemStatus(ctx, tx, text(item["id"]), text(item["status"]), "SKIPPED_EXISTING", nil, skippedMetadataReason)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if changed != 1 {
+		return false, conflict("批次明细状态已经变化，请刷新后重试")
+	}
+	batchID := text(item["batch_id"])
+	if _, err = s.exec(ctx, tx, "meta-addSkipped", map[string]any{"id": batchID, "now": now()}); err != nil {
+		return false, err
+	}
+	return true, s.finishBatch(ctx, tx, batchID)
+}
+
 type work struct {
-	batchID, itemID, fp string
-	platforms           []string
-	song                map[string]any
-	auto                bool
-	threshold           float64
+	batchID, itemID, fp          string
+	platforms                    []string
+	song                         map[string]any
+	autoApply, autoApplyExplicit bool
+	threshold                    float64
 }
 
 func (s *Service) ProcessNext(ctx context.Context) error {
@@ -518,17 +574,25 @@ func (s *Service) ProcessNext(ctx context.Context) error {
 		}
 		item := items[0]
 		itemID := text(item["id"])
-		if _, e = s.itemStatus(ctx, tx, itemID, "PENDING", "PROCESSING", nil, nil); e != nil {
-			return e
+		song, songErr := s.song(ctx, tx, text(item["song_id"]))
+		if songErr == nil {
+			if skipped, err := s.skipIfApplied(ctx, tx, item, song); err != nil || skipped {
+				return err
+			}
 		}
-		song, e := s.song(ctx, tx, text(item["song_id"]))
-		if e != nil || fingerprint(song) != text(item["fingerprint"]) {
-			if _, e = s.itemStatus(ctx, tx, itemID, "PROCESSING", "FAILED", nil, "歌曲已移除或文件发生变化"); e != nil {
+		if songErr != nil || fingerprint(song) != text(item["fingerprint"]) {
+			if _, e = s.itemStatus(ctx, tx, itemID, "PENDING", "FAILED", nil, "歌曲已移除或文件发生变化"); e != nil {
 				return e
 			}
 			return s.finishBatch(ctx, tx, id)
 		}
-		w = &work{batchID: id, itemID: itemID, fp: text(item["fingerprint"]), song: song, auto: boolean(batch["auto_apply"]), threshold: decimal(batch["threshold"])}
+		if _, e = s.itemStatus(ctx, tx, itemID, "PENDING", "PROCESSING", nil, nil); e != nil {
+			return e
+		}
+		w = &work{
+			batchID: id, itemID: itemID, fp: text(item["fingerprint"]), song: song,
+			autoApply: boolean(batch["auto_apply"]), autoApplyExplicit: boolean(batch["auto_apply_explicit"]), threshold: decimal(batch["threshold"]),
+		}
 		if e = decode(batch["providers_json"], &w.platforms); e != nil {
 			return e
 		}
@@ -554,6 +618,11 @@ func (s *Service) ProcessNext(ctx context.Context) error {
 			_, e = s.itemStatus(ctx, tx, w.itemID, "PROCESSING", "PENDING", nil, nil)
 			return e
 		}
+		if latest, songErr := s.song(ctx, tx, text(item["song_id"])); songErr == nil {
+			if skipped, err := s.skipIfApplied(ctx, tx, item, latest); err != nil || skipped {
+				return err
+			}
+		}
 		state, message := "REVIEW", any("请人工选择候选并确认应用字段")
 		candidates := result.Candidates
 		if len(candidates) > 5 {
@@ -563,34 +632,23 @@ func (s *Service) ProcessNext(ctx context.Context) error {
 			state, message = "FAILED", "平台请求失败、服务已停用或歌曲不可用，请检查设置后重试"
 		} else if len(candidates) == 0 {
 			message = "没有找到候选，请修改关键词后从单曲入口重新匹配"
-		} else if w.auto {
+		} else if w.autoApply {
 			cfg, e := s.settings(ctx, tx, false)
 			if e != nil {
 				return e
 			}
-			threshold := math.Inf(1)
-			if cfg.Enabled && cfg.AutoApply {
-				threshold = math.Max(w.threshold, cfg.Threshold)
-			}
-			if candidates[0].Score >= threshold && closeRecordingAlternative(result.Candidates) {
-				message = "存在同分或相近候选，请核对专辑、日期与录音版本后人工确认；未自动写入"
-			} else if candidates[0].Score >= threshold {
-				latest, e := s.song(ctx, tx, text(w.song["id"]))
-				if e == nil && confirmed(latest) {
-					state, message = "MANUAL_APPLIED", "查询期间歌曲已确认，保留已有元数据"
+			if cfg.Enabled && (w.autoApplyExplicit || cfg.AutoApply) && candidates[0].Score >= math.Max(w.threshold, cfg.Threshold) {
+				_, e = s.applyLocked(ctx, tx, text(w.song["id"]), ApplyInput{candidates[0].ID, allFields}, w.fp, true)
+				if e == nil {
+					state, message = "AUTO_APPLIED", nil
+				} else if code(e) < 500 {
+					message = "自动写入未执行，歌曲或设置已变化，请人工审核"
 				} else {
-					_, e = s.applyLocked(ctx, tx, text(w.song["id"]), ApplyInput{candidates[0].ID, allFields}, w.fp, true)
-					if e == nil {
-						state, message = "AUTO_APPLIED", nil
-					} else if code(e) < 500 {
-						message = "自动写入未执行，歌曲或设置已变化，请人工审核"
-					} else {
-						return e
-					}
+					return e
 				}
 			}
 		}
-		if len(result.Errors) > 0 && state != "AUTO_APPLIED" && state != "MANUAL_APPLIED" {
+		if len(result.Errors) > 0 && state != "AUTO_APPLIED" {
 			v := text(message)
 			for _, p := range result.Errors {
 				v += "；部分平台失败：" + p.Provider + "：" + p.Message
@@ -618,20 +676,6 @@ func (s *Service) ProcessNext(ctx context.Context) error {
 	return e
 }
 
-// A title/artist score alone cannot distinguish studio and live recordings.
-// Match the review workspace's eight-point margin before allowing an automatic write.
-func closeRecordingAlternative(candidates []Candidate) bool {
-	if len(candidates) < 2 {
-		return false
-	}
-	bestScore := int(math.Round(candidates[0].Score * 1000))
-	for _, candidate := range candidates[1:] {
-		if candidate.ID != candidates[0].ID && bestScore-int(math.Round(candidate.Score*1000)) < 80 {
-			return true
-		}
-	}
-	return false
-}
 func (s *Service) worker() {
 	defer s.wg.Done()
 	ticker := time.NewTicker(time.Second)

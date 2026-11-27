@@ -3807,7 +3807,7 @@
     "/api/v1/metadata/batches": {
       "post": {
         "operationId": "startMetadataBatch",
-        "summary": "Start one durable batch; selected up to 500, full library or one media source up to 5000; unchanged applied songs skipped",
+        "summary": "Start a matching batch for up to 500 selected songs or 5000 songs from the library or one source. Previously applied songs are skipped.",
         "security": [
           {
             "sessionCookie": []
@@ -30012,6 +30012,10 @@
           "sourceId": {
             "type": "string",
             "description": "Optional media source ID when all is true; limits the batch to that source"
+          },
+          "autoApply": {
+            "type": "boolean",
+            "description": "Apply the first ranked candidate when it reaches the effective threshold. Omit to follow the global setting."
           }
         },
         "required": []
