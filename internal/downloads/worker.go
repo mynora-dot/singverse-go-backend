@@ -599,14 +599,10 @@ func (s *Service) attachments(ctx context.Context, t Track, path string) string 
 	if t.CoverURL == "" {
 		warnings = append(warnings, "未获取到封面")
 	} else {
-		reply, e := s.network.Request(ctx, t.CoverURL, "GET", nil, nil, 2_000_000, false)
-		extension := ""
-		if e == nil && reply.Status == 200 {
-			extension, e = validateCover(reply.Bytes)
-		}
-		if e != nil || extension == "" {
+		data, extension, e := fetchCatalogCover(ctx, s.catalogNet, t.CoverURL)
+		if e != nil {
 			warnings = append(warnings, "封面获取失败，可稍后补充")
-		} else if e = writeAttachment(stem+"."+extension, reply.Bytes); e != nil {
+		} else if e = writeAttachment(stem+"."+extension, data); e != nil {
 			warnings = append(warnings, "封面保存失败，可稍后补充")
 		}
 	}

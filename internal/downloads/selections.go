@@ -2,12 +2,13 @@ package downloads
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/qishui"
 	"github.com/mynora-dot/singverse-go-backend/internal/platform/store"
 )
 
@@ -72,31 +73,18 @@ func (s *Service) views(ctx context.Context, tracks []Track) ([]map[string]any, 
 	return out, nil
 }
 func (s *Service) Search(ctx context.Context, query, platform string, page int) (map[string]any, error) {
-	if strings.TrimSpace(query) == "" || search.UTF16Length(query) > 100 || page < 1 || page > 100 {
-		return nil, bad("请输入 1–100 个字的歌名或歌手，页码最多 100")
+	query = strings.TrimSpace(query)
+	if err := validateCatalogSearch(query, page); err != nil {
+		return nil, err
 	}
-	_, script, e := s.requireSource(ctx, s.db)
-	if e != nil {
-		return nil, e
-	}
-	enabled, e := capabilities(script)
-	if e != nil {
-		return nil, e
-	}
-	codes := []string{}
-	if platform == "" || platform == "all" {
-		for _, p := range []string{"wy", "tx", "kg", "kw", "mg", "qs"} {
-			if _, ok := enabled[p]; ok {
-				codes = append(codes, p)
-			}
+	codes := []string{"wy", "tx", "kg", "kw", "mg", "qs"}
+	if platform != "" && platform != "all" {
+		if platforms[platform] == "" {
+			return nil, bad("不支持的平台")
 		}
-	} else {
-		if _, ok := enabled[platform]; !ok {
-			return nil, bad("当前音源不支持该平台，请切换平台或音源")
-		}
-		codes = append(codes, platform)
+		codes = []string{platform}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	searchCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
 	defer cancel()
 	type response struct {
 		page CatalogPage
@@ -111,11 +99,11 @@ func (s *Service) Search(ctx context.Context, query, platform string, page int) 
 			select {
 			case s.catalogSlots <- struct{}{}:
 				defer func() { <-s.catalogSlots }()
-			case <-ctx.Done():
-				answers[i].err = ctx.Err()
+			case <-searchCtx.Done():
+				answers[i].err = searchCtx.Err()
 				return
 			}
-			answers[i].page, answers[i].err = s.catalog.Search(ctx, p, query, page)
+			answers[i].page, answers[i].err = s.catalog.Search(searchCtx, p, query, page)
 		}(i, p)
 	}
 	wg.Wait()
@@ -125,11 +113,8 @@ func (s *Service) Search(ctx context.Context, query, platform string, page int) 
 	more := false
 	for i, a := range answers {
 		if a.err != nil {
-			failures = append(failures, map[string]any{"platform": codes[i], "message": "平台读取失败，请重试或切换平台"})
+			failures = append(failures, map[string]any{"platform": codes[i], "message": catalogSearchFailure(a.err)})
 			continue
-		}
-		if e = s.remember(ctx, a.page.Tracks); e != nil {
-			return nil, e
 		}
 		tracks = append(tracks, a.page.Tracks...)
 		more = more || a.page.HasMore
@@ -137,11 +122,28 @@ func (s *Service) Search(ctx context.Context, query, platform string, page int) 
 			warnings = append(warnings, platforms[codes[i]]+"："+clean(a.page.Warning))
 		}
 	}
+	if len(tracks) > 0 {
+		if err := s.remember(ctx, tracks); err != nil {
+			return nil, err
+		}
+	}
 	views, e := s.views(ctx, tracks)
 	if e != nil {
 		return nil, e
 	}
 	return map[string]any{"tracks": views, "errors": failures, "warnings": warnings, "page": page, "hasMore": more}, nil
+}
+
+func catalogSearchFailure(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "平台搜索超时，请稍后重试"
+	}
+	var message *problem
+	var qishuiFailure *qishui.Failure
+	if errors.As(err, &message) || errors.As(err, &qishuiFailure) {
+		return clean(err.Error())
+	}
+	return "平台读取失败，请稍后重试"
 }
 func (s *Service) Preview(ctx context.Context, address string, page int) (map[string]any, error) {
 	if page < 1 || page > 500 {

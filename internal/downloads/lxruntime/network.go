@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrPublicDNS indicates that a host could not be resolved exclusively to public IPs.
+var ErrPublicDNS = errors.New("no validated public DNS addresses")
 
 type network struct {
 	client *http.Client
@@ -46,12 +50,12 @@ func (n *network) dialPublic(ctx context.Context, networkName, address string) (
 	}
 	addresses, err := n.lookup(ctx, host)
 	if err != nil || len(addresses) == 0 || len(addresses) > 64 {
-		return nil, ErrNetwork
+		return nil, ErrPublicDNS
 	}
 	for _, ip := range addresses {
 		parsed, ok := netip.AddrFromSlice(ip.IP)
 		if !ok || ip.Zone != "" || !publicAddress(parsed) {
-			return nil, ErrNetwork
+			return nil, ErrPublicDNS
 		}
 	}
 	for _, ip := range addresses {

@@ -50,8 +50,23 @@ func (*audioContentError) StatusCode() int { return 400 }
 func (*audioContentError) Unwrap() error   { return lxruntime.ErrQualityUnavailable }
 
 func NewNetwork() *Network {
-	return &Network{client: &http.Client{Transport: lxruntime.PublicTransport(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	return newNetwork(lxruntime.PublicTransport())
 }
+
+func newNetwork(transport *http.Transport) *Network {
+	return &Network{client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+}
+
+func catalogHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, domain := range []string{"music.163.com", "163cn.tv", "music.126.net", "y.qq.com", "qqmusic.qq.com", "qm.qq.com", "gtimg.cn", "kugou.com", "kugoucdn.com", "kgimg.com", "kuwo.cn", "migu.cn", "qishui.com", "qishui.douyin.com", "qishui.share.douyin.com", "open.douyin.com", "p3-luna.douyinpic.com", "p6-luna.douyinpic.com"} {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
 func (n *Network) Close() { n.client.CloseIdleConnections() }
 func (n *Network) perform(ctx context.Context, address, method string, headers map[string]string, body []byte, httpsOnly bool, reader func(*http.Response) error) error {
 	u, err := lxruntime.CheckPublicURL(address, httpsOnly)
@@ -79,13 +94,16 @@ func (n *Network) perform(ctx context.Context, address, method string, headers m
 			response, e = n.client.Do(req)
 			// Retry a read once only before receiving headers or writing any audio.
 			// DNS and redirect checks remain on the same controlled transport.
-			if e == nil || ctx.Err() != nil || method != "GET" && method != "HEAD" {
+			if e == nil || ctx.Err() != nil || errors.Is(e, lxruntime.ErrPublicDNS) || method != "GET" && method != "HEAD" {
 				break
 			}
 		}
 		if e != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if errors.Is(e, lxruntime.ErrPublicDNS) {
+				return bad("服务端 DNS 未返回可用的公网地址，请检查网络或代理的 DNS 设置")
 			}
 			return bad("连接失败或响应无效，请检查音源和网络")
 		}
@@ -106,7 +124,7 @@ func (n *Network) perform(ctx context.Context, address, method string, headers m
 				return bad("拒绝 HTTPS 降级跳转")
 			}
 			if !sameOrigin(u, next) {
-				for _, k := range []string{"Authorization", "Cookie", "Referer"} {
+				for _, k := range []string{"Authorization", "Access-Token", "Cookie", "Referer"} {
 					safe.Del(k)
 				}
 			}

@@ -5,34 +5,40 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
-	"github.com/mynora-dot/singverse-go-backend/internal/platform/jsondata"
-	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 	"html"
 	"io"
 	"math"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/jsondata"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
 )
 
 type catalogNetwork interface {
 	Request(context.Context, string, string, map[string]string, []byte, int, bool) (Reply, error)
 }
 type publicCatalog struct {
-	network    catalogNetwork
-	qsOnce     sync.Once
-	qs         *qishuiCatalog
-	qsErr      error
-	queryCache querycache.Cache
+	network       catalogNetwork
+	kugouDeviceID string
+	qsOnce        sync.Once
+	qs            *qishuiCatalog
+	qsErr         error
+	queryCache    querycache.Cache
 }
 
-func newCatalog(network *Network) Catalog { return &publicCatalog{network: network} }
-func unavailable(message string) error    { return &problem{502, message} }
-func asObject(v any) map[string]any       { m, _ := v.(map[string]any); return m }
-func asArray(v any) []any                 { a, _ := v.([]any); return a }
+func newCatalog(network catalogNetwork) *publicCatalog {
+	return &publicCatalog{network: network, kugouDeviceID: strings.ReplaceAll(uuid(), "-", "")}
+}
+
+func unavailable(message string) error { return &problem{502, message} }
+func asObject(v any) map[string]any    { m, _ := v.(map[string]any); return m }
+func asArray(v any) []any              { a, _ := v.([]any); return a }
 func at(v any, keys ...string) any {
 	for _, k := range keys {
 		v = asObject(v)[k]
@@ -107,12 +113,7 @@ func catalogURL(base string, kv ...any) string {
 var jsonp = regexp.MustCompile(`(?s)^[A-Za-z_$][\w.$]*\s*\(.*\);?\s*$`)
 
 func (c *publicCatalog) send(ctx context.Context, address, platform, method string, extra map[string]string, body []byte) (map[string]any, error) {
-	referer := "https://www.kuwo.cn/"
-	if platform == "tx" {
-		referer = "https://y.qq.com/"
-	} else if platform == "wy" {
-		referer = "https://music.163.com/"
-	}
+	referer := map[string]string{"wy": "https://music.163.com/", "tx": "https://y.qq.com/", "kg": "https://www.kugou.com/", "kw": "https://www.kuwo.cn/", "mg": "https://music.migu.cn/"}[platform]
 	h := map[string]string{"Referer": referer, "User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 	for k, v := range extra {
 		h[k] = v
@@ -122,10 +123,14 @@ func (c *publicCatalog) send(ctx context.Context, address, platform, method stri
 		return nil, e
 	}
 	if r.Status != 200 {
-		if r.Status == 401 || r.Status == 403 {
+		switch r.Status {
+		case http.StatusTooManyRequests:
+			return nil, &problem{429, "平台请求过于频繁，请稍后重试"}
+		case http.StatusUnauthorized, http.StatusForbidden:
 			return nil, unavailable("该目录需要权限，请检查是否公开或更换平台")
+		default:
+			return nil, unavailable(fmt.Sprintf("平台请求返回 HTTP %d，请稍后重试", r.Status))
 		}
-		return nil, unavailable("平台请求失败，请稍后重试")
 	}
 	text := strings.TrimSpace(string(r.Bytes))
 	if jsonp.MatchString(text) {
@@ -206,7 +211,7 @@ func catalogArtists(v any) []string {
 	if a, ok := v.([]any); ok {
 		for _, row := range a {
 			if _, ok := row.(map[string]any); ok {
-				add(catalogText(row, "name", "singerName"))
+				add(catalogNonemptyText(row, "name", "singerName", "author_name", "SingerName"))
 			} else {
 				add(valueText(row))
 			}
@@ -263,6 +268,9 @@ func quality(rows *[]any, kind string, size any, hash string) {
 	}
 	*rows = append(*rows, q)
 }
+
+var kugouTrackHash = regexp.MustCompile(`^[A-F0-9]{32}$`)
+
 func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 	var id, title, album, cover, albumID string
 	var singers any
@@ -277,15 +285,15 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		al := first(row, "album", "al")
 		album = catalogText(al, "name")
 		albumID = catalogText(al, "id")
-		cover = catalogText(al, "picUrl", "blurPicUrl")
+		cover = firstCatalogArtwork([]string{"music.126.net"}, at(al, "picUrl"), at(al, "pic"), at(al, "picUrlStr"), at(al, "blurPicUrl"), row["picUrl"], row["coverImgUrl"], row["coverUrl"])
 		duration = durationMillis(first(row, "dt", "duration"), false)
 		meta["songId"] = row["id"]
 		for _, q := range []struct{ field, legacy, kind string }{{"l", "lMusic", "128k"}, {"h", "hMusic", "320k"}, {"sq", "sqMusic", "flac"}, {"hr", "hrMusic", "flac24bit"}} {
 			quality(&qs, q.kind, at(first(row, q.field, q.legacy), "size"), "")
 		}
 	case "tx":
-		id = catalogText(row, "songmid", "mid")
-		title = catalogText(row, "songname", "title", "name")
+		id = catalogNonemptyText(row, "songmid", "mid")
+		title = catalogNonemptyText(row, "songname", "title", "name")
 		singers = row["singer"]
 		al := row["album"]
 		album = catalogText(row, "albumname")
@@ -296,7 +304,8 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		if albumID == "" {
 			albumID = catalogText(al, "mid")
 		}
-		if albumID != "" {
+		cover = firstCatalogArtwork([]string{"gtimg.cn"}, at(al, "picUrl"), row["albumPic"], row["picUrl"])
+		if cover == "" && albumID != "" {
 			cover = "https://y.gtimg.cn/music/photo_new/T002R300x300M000" + albumID + ".jpg"
 		}
 		duration = durationMillis(row["interval"], true)
@@ -315,13 +324,13 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		quality(&qs, "320k", first(file, "size320", "size_320mp3"), "")
 		quality(&qs, "flac", first(file, "sizeflac", "size_flac"), "")
 	case "kg":
-		id = strings.ToUpper(catalogText(row, "FileHash", "hash"))
-		if !regexp.MustCompile(`^[A-F0-9]{32}$`).MatchString(id) {
+		id = strings.ToUpper(catalogNonemptyText(row, "FileHash", "hash"))
+		if !kugouTrackHash.MatchString(id) {
 			return Track{}, errors.New("invalid hash")
 		}
 		filename := catalogText(row, "FileName", "filename")
-		title = catalogText(row, "SongName", "songname", "audio_name")
-		artist := catalogText(row, "SingerName", "singername", "author_name")
+		title = catalogNonemptyText(row, "SongName", "songname", "audio_name")
+		artist := catalogNonemptyText(row, "SingerName", "singername", "author_name")
 		if title == "" {
 			parts := strings.SplitN(filename, " - ", 2)
 			title = filename
@@ -332,15 +341,33 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 				}
 			}
 		}
-		singers = artist
+		singers = first(row, "Singers", "authors")
+		if len(asArray(singers)) == 0 {
+			singers = artist
+		}
 		album = catalogText(row, "AlbumName", "album_name")
 		albumID = catalogText(row, "AlbumID", "album_id")
 		cover = kugouCatalogCover(row)
 		duration = durationMillis(first(row, "Duration", "duration", "timelength"), row["timelength"] == nil)
 		meta["hash"] = id
-		quality(&qs, "128k", first(row, "FileSize", "size"), id)
-		quality(&qs, "320k", first(row, "HQFileSize", "320filesize"), catalogText(row, "HQFileHash", "hash_320", "320hash"))
-		quality(&qs, "flac", first(row, "SQFileSize", "sqfilesize"), catalogText(row, "SQFileHash", "hash_flac", "sqhash"))
+		quality(&qs, "128k", first(row, "FileSize", "filesize", "size"), id)
+		for _, file := range []struct {
+			kind, nested  string
+			sizes, hashes []string
+		}{
+			{"320k", "HQ", []string{"HQFileSize", "filesize_320", "320filesize"}, []string{"HQFileHash", "hash_320", "320hash"}},
+			{"flac", "SQ", []string{"SQFileSize", "filesize_flac", "sqfilesize"}, []string{"SQFileHash", "hash_flac", "sqhash"}},
+		} {
+			size := first(row, file.sizes...)
+			hash := catalogNonemptyText(row, file.hashes...)
+			if hash == "" {
+				hash = catalogNonemptyText(row[file.nested], "Hash", "FileHash", "hash")
+			}
+			if integer(size, 0) <= 0 {
+				size = first(row[file.nested], "FileSize", "Filesize", "filesize", "size")
+			}
+			quality(&qs, file.kind, size, hash)
+		}
 	case "kw":
 		id = strings.TrimPrefix(catalogText(row, "MUSICRID", "musicrid", "rid", "id"), "MUSIC_")
 		title = catalogNonemptyText(row, "SONGNAME", "NAME", "name", "songname")
@@ -348,7 +375,7 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		album = catalogText(row, "ALBUM", "album")
 		albumID = catalogText(row, "ALBUMID", "albumid", "albumId")
 		cover = kuwoCatalogCover(row)
-		duration = durationMillis(first(row, "DURATION", "duration"), true)
+		duration = durationMillis(first(row, "song_duration", "DURATION", "duration"), true)
 		meta["songId"] = id
 		formats := catalogText(row, "FORMATS", "formats", "KFORMATS")
 		for _, q := range []struct{ format, kind string }{{"MP3128", "128k"}, {"MP3H", "320k"}, {"FLAC", "flac"}} {
@@ -365,11 +392,11 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 			al = asObject(row["album"])
 			singers = row["artists"]
 			duration = durationMillis(row["duration"], false)
-			cover = qishuiCover(al["url_cover"])
+			cover = qishuiCover(row["url_cover"], al["url_cover"])
 		} else {
 			singers = related["artist_links"]
 			duration = durationMillis(base["duration_ms"], false)
-			cover = qishuiCover(at(row, "display_info", "cover_url"))
+			cover = qishuiCover(at(row, "display_info", "cover_url"), al["url_cover"], al["cover_url"])
 		}
 		id = catalogText(base, "id")
 		if !catalogDigits.MatchString(id) || len(id) > 30 {
@@ -387,14 +414,14 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		if copyright == "" {
 			return Track{}, errors.New("missing copyright id")
 		}
-		title = catalogText(row, "songName", "name")
+		title = catalogNonemptyText(row, "songName", "name")
 		singers = first(row, "singerList", "singers", "singer")
 		var al any
 		albums := asArray(row["albums"])
 		if len(albums) > 0 {
 			al = albums[0]
 		}
-		album = catalogText(row, "album", "albumName")
+		album = catalogNonemptyText(row, "album", "albumName")
 		if album == "" {
 			album = catalogText(al, "name")
 		}
@@ -402,14 +429,7 @@ func mapCatalogTrack(p string, row map[string]any) (Track, error) {
 		if albumID == "" {
 			albumID = catalogText(al, "id")
 		}
-		cover = catalogText(row, "img1", "img", "imageUrl", "largePic")
-		images := asArray(row["imgItems"])
-		if cover == "" && len(images) > 0 {
-			cover = catalogText(images[0], "img", "imgUrl")
-		}
-		if strings.HasPrefix(cover, "/") && !strings.HasPrefix(cover, "//") {
-			cover = "https://d.musicapp.migu.cn" + cover
-		}
+		cover = miguCatalogCover(row)
 		duration = durationMillis(row["duration"], true)
 		meta["songId"] = id
 		meta["copyrightId"] = copyright

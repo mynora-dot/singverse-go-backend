@@ -22,6 +22,7 @@ type qishuiTransport struct{ network catalogNetwork }
 func (t qishuiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var body []byte
 	if req.Body != nil {
+		defer req.Body.Close()
 		var err error
 		body, err = io.ReadAll(io.LimitReader(req.Body, 64*1024))
 		if err != nil {
@@ -131,7 +132,7 @@ func (c *publicCatalog) searchQishui(ctx context.Context, query string, page int
 		var group map[string]any
 		for _, raw := range asArray(data["result_groups"]) {
 			g := asObject(raw)
-			if catalogText(g, "id") == "tracks" {
+			if id := catalogText(g, "id"); id == "tracks" || id == "track" {
 				group = g
 				break
 			}
@@ -140,7 +141,11 @@ func (c *publicCatalog) searchQishui(ctx context.Context, query string, page int
 			}
 		}
 		rows := []any{}
-		for _, raw := range asArray(group["data"]) {
+		dataRows, ok := group["data"].([]any)
+		if !ok && group["data"] != nil {
+			return CatalogPage{}, unavailable("汽水音乐搜索返回的数据不完整，请稍后重试")
+		}
+		for _, raw := range dataRows {
 			row := qishuiTrack(raw)
 			if row["base_info"] != nil || row["id"] != nil {
 				rows = append(rows, row)
@@ -168,15 +173,24 @@ func (c *publicCatalog) searchQishui(ctx context.Context, query string, page int
 var qishuiImageURI = regexp.MustCompile(`^[A-Za-z0-9_/.-]{1,500}$`)
 var qishuiImageTemplate = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
 
-func qishuiCover(raw any) string {
+func qishuiCover(candidates ...any) string {
+	for _, raw := range candidates {
+		if cover := qishuiImageURL(raw); cover != "" {
+			return cover
+		}
+	}
+	return ""
+}
+
+func qishuiImageURL(raw any) string {
 	image := asObject(raw)
 	for _, v := range asArray(image["urls"]) {
-		address := valueText(v)
+		address := strings.TrimSpace(valueText(v))
 		u, err := url.Parse(address)
 		if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || !contains([]string{"p3-luna.douyinpic.com", "p6-luna.douyinpic.com"}, u.Hostname()) {
 			continue
 		}
-		if u.Path == "/img/" && u.RawQuery == "" {
+		if u.Path == "/img/" && u.RawQuery == "" && u.Fragment == "" {
 			uri, template := catalogText(image, "uri"), catalogText(image, "template_prefix")
 			if qishuiImageURI.MatchString(uri) && !strings.Contains(uri, "..") && qishuiImageTemplate.MatchString(template) {
 				return address + uri + "~" + template + "-image.image"

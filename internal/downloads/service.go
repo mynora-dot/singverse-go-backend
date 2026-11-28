@@ -33,6 +33,7 @@ type Service struct {
 	q            map[string]string
 	runtime      ScriptRuntime
 	network      *Network
+	catalogNet   *Network
 	catalog      Catalog
 	covers       CoverStore
 	ctx          context.Context
@@ -59,10 +60,10 @@ func New(db *sqlx.DB, dialect string, cfg config.Config, cipher Cipher, lib Libr
 	if log == nil {
 		log = slog.Default()
 	}
-	net := NewNetwork()
-	s := &Service{db: db, dialect: dialect, cfg: cfg, cipher: cipher, library: lib, log: log, q: q, ctx: ctx, cancel: cancel, runtime: lxruntime.New(""), network: net, running: map[string]context.CancelFunc{}, catalogSlots: make(chan struct{}, 5)}
-	s.catalog = newCatalog(net)
-	s.covers = newCovers(net)
+	catalogNet := newNetwork(lxruntime.PublicCatalogTransport(catalogHost))
+	s := &Service{db: db, dialect: dialect, cfg: cfg, cipher: cipher, library: lib, log: log, q: q, ctx: ctx, cancel: cancel, runtime: lxruntime.New(""), network: NewNetwork(), catalogNet: catalogNet, running: map[string]context.CancelFunc{}, catalogSlots: make(chan struct{}, len(platforms))}
+	s.catalog = newCatalog(catalogNet)
+	s.covers = newCovers(catalogNet)
 	return s, nil
 }
 
@@ -87,6 +88,7 @@ func (s *Service) Close() error {
 	s.runtime.Close()
 	s.wg.Wait()
 	s.network.Close()
+	s.catalogNet.Close()
 	return nil
 }
 func (s *Service) SetProjector(fn Projector) { s.hookMu.Lock(); s.projector = fn; s.hookMu.Unlock() }

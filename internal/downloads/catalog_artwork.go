@@ -13,37 +13,66 @@ import (
 // Search and collection endpoints use different names for the same artwork.
 // Empty album fields must not hide the usable fallback supplied alongside them.
 func kugouCatalogCover(row map[string]any) string {
-	for _, raw := range []string{catalogText(row, "AlbumImage"), catalogText(row, "Image"), catalogText(row, "imgurl"), catalogText(row["trans_param"], "union_cover")} {
-		if cover := publicCatalogArtwork(strings.ReplaceAll(raw, "{size}", "400"), "kugou.com", "kugoucdn.com", "kgimg.com"); cover != "" {
+	return firstCatalogArtwork([]string{"kugou.com", "kugoucdn.com", "kgimg.com"},
+		row["AlbumImage"], row["Image"], row["imgurl"], row["image"], at(row, "trans_param", "union_cover"))
+}
+
+var kuwoCatalogAlbumPath = regexp.MustCompile(`(?i)^[0-9]+/[A-Za-z0-9_/-]+\.(jpg|jpeg|png|webp)$`)
+
+func kuwoCatalogCover(row map[string]any) string {
+	for _, field := range []string{"albumpic", "albumPic", "web_albumpic", "webAlbumpic", "web_albumpic_short", "webAlbumpicShort", "albumpic_short", "pic", "PIC", "MUSICPIC", "img"} {
+		raw := catalogNonemptyText(row, field)
+		if kuwoCatalogAlbumPath.MatchString(raw) {
+			raw = "https://img1.kuwo.cn/star/albumcover/" + raw
+		} else if host, _, ok := strings.Cut(raw, "/"); ok && strings.HasSuffix(host, ".kuwo.cn") {
+			raw = "https://" + raw
+		}
+		if cover := publicCatalogArtwork(raw, "kuwo.cn"); cover != "" {
 			return cover
 		}
 	}
 	return ""
 }
 
-var kuwoCatalogAlbumPath = regexp.MustCompile(`^[0-9]+/[A-Za-z0-9_/-]+\.(jpg|jpeg|png)$`)
+func miguCatalogCover(row map[string]any) string {
+	images := asArray(row["imgItems"])
+	candidates := []any{row["img1"], row["img"], row["imageUrl"], row["largePic"]}
+	for _, image := range images {
+		candidates = append(candidates, at(image, "img"), at(image, "imgUrl"))
+	}
+	for i, candidate := range candidates {
+		if raw, ok := candidate.(string); ok {
+			raw = strings.TrimSpace(raw)
+			if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") {
+				candidates[i] = "https://d.musicapp.migu.cn" + raw
+			}
+		}
+	}
+	return firstCatalogArtwork([]string{"migu.cn"}, candidates...)
+}
 
-func kuwoCatalogCover(row map[string]any) string {
-	for _, field := range []string{"albumpic", "pic", "img"} {
-		if cover := publicCatalogArtwork(catalogText(row, field), "kuwo.cn"); cover != "" {
+func firstCatalogArtwork(httpsHosts []string, candidates ...any) string {
+	for _, candidate := range candidates {
+		raw, ok := candidate.(string)
+		if !ok {
+			continue
+		}
+		if cover := publicCatalogArtwork(raw, httpsHosts...); cover != "" {
 			return cover
 		}
 	}
-	path := catalogText(row, "web_albumpic_short")
-	if !kuwoCatalogAlbumPath.MatchString(path) || strings.Contains(path, "..") {
-		return ""
-	}
-	return "https://img1.kuwo.cn/star/albumcover/500/" + strings.SplitN(path, "/", 2)[1]
+	return ""
 }
 
 func publicCatalogArtwork(raw string, httpsHosts ...string) string {
-	cover := safeCatalogCover(strings.TrimSpace(raw))
+	cover := safeCatalogCover(strings.ReplaceAll(strings.TrimSpace(raw), "{size}", "400"))
 	if cover == "" {
 		return ""
 	}
 	u, _ := url.Parse(cover)
-	for _, host := range httpsHosts {
-		if u.Scheme == "http" && (u.Hostname() == host || strings.HasSuffix(u.Hostname(), "."+host)) {
+	host := strings.ToLower(u.Hostname())
+	for _, domain := range httpsHosts {
+		if u.Scheme == "http" && u.Port() == "" && (host == domain || strings.HasSuffix(host, "."+domain)) {
 			u.Scheme = "https"
 			break
 		}
@@ -63,6 +92,8 @@ func (c *publicCatalog) completeNeteaseSearch(ctx context.Context, page CatalogP
 	if len(ids) == 0 {
 		return page
 	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	root, err := c.get(ctx, catalogURL("https://music.163.com/api/v3/song/detail", "c", encode(ids)), "wy")
 	details := map[string]Track{}
 	if err == nil {
@@ -75,11 +106,16 @@ func (c *publicCatalog) completeNeteaseSearch(ctx context.Context, page CatalogP
 	missing := false
 	for i, track := range page.Tracks {
 		if detail, ok := details[track.RemoteID]; ok {
-			if detail.CoverURL == "" {
-				detail.CoverURL = track.CoverURL
-				detail.MusicInfo = sourceMusicInfo(detail)
+			if track.CoverURL == "" {
+				track.CoverURL = detail.CoverURL
 			}
-			page.Tracks[i] = detail
+			meta := asObject(track.MusicInfo["meta"])
+			if len(asArray(meta["qualitys"])) == 0 {
+				detailMeta := asObject(detail.MusicInfo["meta"])
+				meta["qualitys"], meta["_qualitys"] = detailMeta["qualitys"], detailMeta["_qualitys"]
+			}
+			track.MusicInfo = sourceMusicInfo(track)
+			page.Tracks[i] = track
 		}
 		missing = missing || page.Tracks[i].CoverURL == ""
 	}
@@ -87,7 +123,7 @@ func (c *publicCatalog) completeNeteaseSearch(ctx context.Context, page CatalogP
 		if page.Warning != "" {
 			page.Warning += "；"
 		}
-		page.Warning += "部分歌曲的封面或音质信息暂不可用，可稍后重新搜索"
+		page.Warning += "部分歌曲暂无封面"
 	}
 	return page
 }

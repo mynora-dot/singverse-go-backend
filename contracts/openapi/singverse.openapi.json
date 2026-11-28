@@ -21117,7 +21117,7 @@
     "/api/v1/lx-downloads/catalog/search": {
       "post": {
         "operationId": "searchLxCatalog",
-        "summary": "Search enabled platforms with isolated provider failures",
+        "summary": "Search public song catalogues with isolated provider failures",
         "security": [
           {
             "sessionCookie": []
@@ -21163,26 +21163,6 @@
                 }
               }
             }
-          },
-          "409": {
-            "description": "Directory/source not ready or active tasks prevent changing the binding",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "Source execution, catalog or network failure; sanitized actionable detail",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
           }
         },
         "requestBody": {
@@ -21205,7 +21185,7 @@
             }
           }
         ],
-        "description": "Requires a writable target and active source. Page is 1-based, 20 items per provider before provider version expansion. Different platforms/versions retain distinct identities."
+        "description": "Available before configuring a download target or audio source. Provider failures are returned in errors alongside successful tracks. Page is 1-based; most providers return 20 items before version expansion, and Qishui follows its upstream cursor. Different platforms and versions retain distinct identities."
       }
     },
     "/api/v1/lx-downloads/catalog/preview": {

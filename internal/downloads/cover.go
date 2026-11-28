@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
 )
 
 type coverReference struct {
@@ -29,7 +32,7 @@ type coverStore struct {
 	clock   func() time.Time
 }
 
-func newCovers(network *Network) CoverStore {
+func newCovers(network catalogNetwork) CoverStore {
 	return &coverStore{network: network, refs: map[string]coverReference{}, cache: map[string]coverEntry{}, clock: time.Now}
 }
 func (c *coverStore) Reference(address string) *string {
@@ -69,14 +72,7 @@ func (c *coverStore) Get(ctx context.Context, id string) ([]byte, string, error)
 		return append([]byte{}, prior.bytes...), prior.kind, nil
 	}
 	c.mu.Unlock()
-	reply, e := c.network.Request(ctx, ref.url, "GET", nil, nil, 2000000, false)
-	if e != nil {
-		return nil, "", e
-	}
-	if reply.Status != 200 {
-		return nil, "", missingCover()
-	}
-	extension, e := validateCover(reply.Bytes)
+	data, extension, e := fetchCatalogCover(ctx, c.network, ref.url)
 	if e != nil {
 		return nil, "", e
 	}
@@ -89,9 +85,67 @@ func (c *coverStore) Get(ctx context.Context, id string) ([]byte, string, error)
 		}
 		c.order = append(c.order, id)
 	}
-	c.cache[id] = coverEntry{append([]byte{}, reply.Bytes...), kind}
+	c.cache[id] = coverEntry{bytes.Clone(data), kind}
 	c.mu.Unlock()
-	return reply.Bytes, kind, nil
+	return data, kind, nil
+}
+
+func fetchCatalogCover(ctx context.Context, network catalogNetwork, address string) ([]byte, string, error) {
+	preferred := preferredCatalogCover(address)
+	if preferred == address {
+		return readCatalogCover(ctx, network, address)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	attempt, finish := context.WithTimeout(ctx, 5*time.Second)
+	data, extension, err := readCatalogCover(attempt, network, preferred)
+	finish()
+	if err == nil {
+		return data, extension, nil
+	}
+	return readCatalogCover(ctx, network, address)
+}
+
+func preferredCatalogCover(address string) string {
+	u, err := url.Parse(address)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || u.RawQuery != "" || u.Fragment != "" {
+		return address
+	}
+	switch u.Hostname() {
+	case "p1.music.126.net", "p2.music.126.net":
+		if u.Host == "p1.music.126.net" {
+			u.Host = "p2.music.126.net"
+		} else {
+			u.Host = "p1.music.126.net"
+		}
+		u.RawQuery = "param=400y400"
+		return u.String()
+	case "img1.kuwo.cn":
+		if strings.HasPrefix(u.Path, "/star/") {
+			// The official mirrors serve the same artwork path and size.
+			u.Host = "img4.kuwo.cn"
+			return u.String()
+		}
+	case "p3-luna.douyinpic.com", "p6-luna.douyinpic.com":
+		if path, ok := strings.CutSuffix(u.Path, "-image.image"); ok && strings.HasPrefix(path, "/img/") && u.RawPath == "" {
+			u.Path = path + "-resize:480:480.jpg"
+			return u.String()
+		}
+	}
+	return address
+}
+
+func readCatalogCover(ctx context.Context, network catalogNetwork, address string) ([]byte, string, error) {
+	headers := map[string]string{"Accept": "image/jpeg,image/png,image/webp"}
+	reply, err := network.Request(ctx, address, "GET", headers, nil, 2_000_000, false)
+	if err != nil {
+		return nil, "", err
+	}
+	if reply.Status != 200 {
+		return nil, "", missingCover()
+	}
+	extension, err := validateCover(reply.Bytes)
+	return reply.Bytes, extension, err
 }
 func coverKind(extension string) string {
 	switch extension {

@@ -5,20 +5,41 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
-	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
-	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/mynora-dot/singverse-go-backend/internal/downloads/lxruntime"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/kugou"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/querycache"
+	"github.com/mynora-dot/singverse-go-backend/internal/platform/search"
 )
 
+const catalogSearchPageSize = 20
+const catalogSearchMaxPage = 100
+
+func validateCatalogSearch(query string, page int) error {
+	if query == "" || search.UTF16Length(query) > 100 || page < 1 || page > catalogSearchMaxPage {
+		return bad("请输入 1–100 个字的歌名或歌手，页码最多 100")
+	}
+	return nil
+}
+
 func (c *publicCatalog) Search(ctx context.Context, platform, query string, page int) (CatalogPage, error) {
+	query = strings.TrimSpace(query)
+	if err := validateCatalogSearch(query, page); err != nil {
+		return CatalogPage{}, err
+	}
+	if platforms[platform] == "" {
+		return CatalogPage{}, bad("不支持的平台")
+	}
 	return querycache.Load(ctx, &c.queryCache, querycache.Key("search", platform, query, strconv.Itoa(page)), func(ctx context.Context) (CatalogPage, time.Duration, error) {
 		out, err := c.search(ctx, platform, query, page)
+		out.HasMore = out.HasMore && page < catalogSearchMaxPage
 		ttl := 10 * time.Minute
 		if len(out.Tracks) == 0 || out.Warning != "" {
 			ttl = time.Minute
@@ -28,64 +49,60 @@ func (c *publicCatalog) Search(ctx context.Context, platform, query string, page
 }
 
 func (c *publicCatalog) search(ctx context.Context, platform, query string, page int) (CatalogPage, error) {
-	if platforms[platform] == "" || strings.TrimSpace(query) == "" || search.UTF16Length(query) > 100 || page < 1 || page > 100 {
-		return CatalogPage{}, bad("请输入 1–100 个字的歌名或歌手，页码最多 100")
-	}
 	var root map[string]any
-	var rows any
-	var total int64
+	var rawRows, rawTotal any
 	var e error
 	switch platform {
 	case "qs":
 		return c.searchQishui(ctx, query, page)
 	case "wy":
-		body := url.Values{"s": {query}, "type": {"1"}, "limit": {"20"}, "offset": {strconv.Itoa((page - 1) * 20)}}
-		root, e = c.send(ctx, "https://music.163.com/api/search/get/web", platform, "POST", map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, []byte(body.Encode()))
-		rows = at(root, "result", "songs")
-		total = integer(at(root, "result", "songCount"), 0)
+		body := url.Values{"s": {query}, "type": {"1"}, "limit": {strconv.Itoa(catalogSearchPageSize)}, "offset": {strconv.Itoa((page - 1) * catalogSearchPageSize)}}
+		// The web search can return an opaque string in result; cloudsearch
+		// returns the public song list and album images as JSON objects.
+		root, e = c.send(ctx, "https://music.163.com/api/cloudsearch/pc", platform, http.MethodPost, map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, []byte(body.Encode()))
+		rawRows, rawTotal = at(root, "result", "songs"), at(root, "result", "songCount")
 	case "tx":
-		root, e = c.get(ctx, catalogURL("https://c.y.qq.com/soso/fcgi-bin/client_search_cp", "w", query, "p", page, "n", 20, "format", "json"), platform)
+		root, e = c.get(ctx, catalogURL("https://c.y.qq.com/soso/fcgi-bin/client_search_cp", "w", query, "p", page, "n", catalogSearchPageSize, "format", "json", "inCharset", "utf8", "outCharset", "utf-8"), platform)
 		song := asObject(at(root, "data", "song"))
+		rawRows, rawTotal = song["list"], song["totalnum"]
+		if e == nil && (integer(root["code"], -1) != 0 || root["subcode"] != nil && integer(root["subcode"], -1) != 0) {
+			return CatalogPage{}, unavailable("QQ 音乐暂时拒绝了搜索请求，请稍后重试")
+		}
 		if e == nil && song["curpage"] != nil && integer(song["curpage"], 0) != int64(page) {
-			e = unavailable("平台未返回新的搜索页，请稍后再试")
+			return CatalogPage{}, unavailable("平台未返回新的搜索页，请稍后重试")
 		}
-		rows = song["list"]
-		total = integer(song["totalnum"], 0)
 	case "kg":
-		root, e = c.get(ctx, catalogURL("https://songsearch.kugou.com/song_search_v2", "keyword", query, "page", page, "pagesize", 20, "platform", "WebFilter", "format", "json"), platform)
-		data := asObject(root["data"])
-		expanded := []any{}
-		for _, r := range asArray(data["lists"]) {
-			expanded = append(expanded, r)
-			expanded = append(expanded, asArray(asObject(r)["Grp"])...)
-		}
-		rows = expanded
-		total = integer(data["total"], 0)
+		return c.searchKugou(ctx, query, page)
 	case "kw":
-		root, e = c.get(ctx, catalogURL("https://search.kuwo.cn/r.s", "all", query, "pn", page-1, "rn", 20, "client", "kt", "ft", "music", "rformat", "json", "encoding", "utf8"), platform)
-		rows = root["abslist"]
-		total = integer(root["TOTAL"], 0)
+		root, e = c.get(ctx, catalogURL("https://search.kuwo.cn/r.s", "all", query, "pn", page-1, "rn", catalogSearchPageSize, "client", "kt", "ft", "music", "rformat", "json", "encoding", "utf8"), platform)
+		rawRows, rawTotal = root["abslist"], root["TOTAL"]
 	case "mg":
-		root, e = c.get(ctx, catalogURL("https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/search_all.do", "text", query, "pageNo", page, "pageSize", 20, "searchSwitch", `{"song":1}`), platform)
+		root, e = c.get(ctx, catalogURL("https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/search_all.do", "text", query, "pageNo", page, "pageSize", catalogSearchPageSize, "searchSwitch", `{"song":1}`), platform)
 		data := root["songResultData"]
 		if data == nil {
 			data = at(root, "data", "songResultData")
 		}
-		flat := []any{}
-		for _, r := range asArray(first(data, "result", "resultList", "songList")) {
-			if a, ok := r.([]any); ok {
-				flat = append(flat, a...)
-			} else {
-				flat = append(flat, r)
-			}
-		}
-		rows = flat
-		total = integer(asObject(data)["totalCount"], 0)
+		rawRows, rawTotal = first(data, "resultList", "result", "songList"), at(data, "totalCount")
 	}
 	if e != nil {
 		return CatalogPage{}, e
 	}
-	result, e := catalogPage(platform, rows, total, int64(page*20) < total, "")
+	rows, total, e := catalogSearchRows(rawRows, rawTotal, page)
+	if e != nil {
+		return CatalogPage{}, e
+	}
+	if platform == "mg" {
+		flat := make([]any, 0, len(rows))
+		for _, row := range rows {
+			if group, ok := row.([]any); ok {
+				flat = append(flat, group...)
+			} else {
+				flat = append(flat, row)
+			}
+		}
+		rows = flat
+	}
+	result, e := catalogPage(platform, rows, total, int64(page*catalogSearchPageSize) < total, "")
 	if e == nil && platform == "wy" {
 		result = c.completeNeteaseSearch(ctx, result)
 	}
@@ -93,6 +110,50 @@ func (c *publicCatalog) search(ctx context.Context, platform, query string, page
 		result = c.completeKuwoSearch(ctx, result)
 	}
 	return result, e
+}
+
+func catalogSearchRows(rawRows, rawTotal any, page int) ([]any, int64, error) {
+	total := integer(rawTotal, -1)
+	rows, list := rawRows.([]any)
+	if total < 0 || !list && rawRows != nil || len(rows) == 0 && int64((page-1)*catalogSearchPageSize) < total {
+		return nil, 0, unavailable("平台搜索返回的数据不完整，请稍后重试")
+	}
+	return rows, total, nil
+}
+
+func (c *publicCatalog) searchKugou(ctx context.Context, query string, page int) (CatalogPage, error) {
+	parse := func(root map[string]any, err error) (CatalogPage, error) {
+		if err != nil {
+			return CatalogPage{}, err
+		}
+		if integer(root["status"], 0) != 1 || integer(root["error_code"], 0) != 0 {
+			return CatalogPage{}, unavailable("酷狗音乐暂时拒绝了搜索请求，请稍后重试")
+		}
+		data := asObject(root["data"])
+		if data["page"] != nil && integer(data["page"], 0) != int64(page) {
+			return CatalogPage{}, unavailable("平台未返回新的搜索页，请稍后重试")
+		}
+		rows, total, err := catalogSearchRows(first(data, "lists", "info"), data["total"], page)
+		if err != nil {
+			return CatalogPage{}, err
+		}
+		expanded := make([]any, 0, len(rows))
+		for _, row := range rows {
+			expanded = append(expanded, row)
+			expanded = append(expanded, asArray(at(row, "Grp"))...)
+		}
+		return catalogPage("kg", expanded, total, int64(page*catalogSearchPageSize) < total, "")
+	}
+	address, headers := kugou.Search("song", query, c.kugouDeviceID, page, catalogSearchPageSize)
+	result, err := parse(c.send(ctx, address, "kg", http.MethodGet, headers, nil))
+	if err == nil || ctx.Err() != nil || statusError(err) == http.StatusTooManyRequests {
+		return result, err
+	}
+	web := catalogURL("https://songsearch.kugou.com/song_search_v2", "keyword", query, "page", page, "pagesize", catalogSearchPageSize, "platform", "WebFilter", "format", "json")
+	if fallback, webErr := parse(c.get(ctx, web, "kg")); webErr == nil {
+		return fallback, nil
+	}
+	return CatalogPage{}, err
 }
 
 var shareLink = regexp.MustCompile(`(?i)https?://[^\s<>“”"']+`)
